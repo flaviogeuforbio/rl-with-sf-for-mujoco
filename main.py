@@ -1,3 +1,3 @@
 import math
 
-#ciao
+print(math.log(2))
