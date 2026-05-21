@@ -104,25 +104,36 @@ def train_sf_ddpg(env_name="HalfCheetah-v5", steps_per_phase=50000, batch_size=6
 
         for step in range(steps_per_phase):
             # 1. Select Action (with exploration noise)
-            if len(replay_buffer.storage) < batch_size * 10:
+            if len(replay_buffer.storage) < batch_size * 10: # Pure Exploration: For the first few thousand steps, the agent flails randomly to gather diverse data.
                 action = env.action_space.sample()
             else:
-                state_tensor = torch.FloatTensor(state).unsqueeze(0)
-                action = actor(state_tensor).detach().numpy()[0]
+                state_tensor = torch.FloatTensor(state).unsqueeze(0) # Convert state to tensor and add batch dimension
+                action = actor(state_tensor).detach().numpy()[0] # The Actor network outputs a deterministic action based on the current state. We detach it from the computation graph and convert it to a NumPy array for interaction with the environment.
                 action = (action + np.random.normal(0, 0.1, size=action_dim)).clip(-max_action, max_action)
+                # Exploration Noise: Once the Actor starts making decisions, we add Gaussian noise (np.random.normal) 
+                # to its actions. The Actor is deterministic; without this noise, it would execute 
+                # the exact same movement every time and get stuck in a local minimum.
 
             # 2. Step Environment
-            next_state, _, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+            next_state, _, terminated, truncated, info = env.step(action) # The chosen action (joint torques) is fed to MuJoCo. MuJoCo computes the physics over a fraction of a second and returns the next_state (new joint angles/velocities).
+            done = terminated or truncated # The episode ends if the Cheetah falls (terminated) or if we reach a time limit (truncated).
 
-            # Extract Basis Features (phi) directly from MuJoCo physics
-            velocity = info.get('x_velocity', 0.0)
-            ctrl_reward = info.get('reward_ctrl', 0.0)
-            phi = np.array([velocity, ctrl_reward], dtype=np.float32)
+            # Extract Basis Features (phi) directly from MuJoCo physics (nstead of taking MuJoCo's scalar reward, we extract the raw physical metrics from the info dictionary to build our basis features phi.)
+            velocity = info.get('x_velocity', 0.0) # The forward velocity of the Cheetah, which is the primary feature for both tasks. For Task 1, we want to maximize this. For Task 2, we want to minimize it (or maximize backward velocity).
+            ctrl_reward = info.get('reward_ctrl', 0.0) # The control reward (negative of the sum of squared torques) is the second feature. Both tasks want to maximize this (i.e., minimize control effort).
+            phi = np.array([velocity, ctrl_reward], dtype=np.float32) # The phi vector is constructed by directly taking the relevant features from the MuJoCo environment. This is a key aspect of the SF framework: we define a set of basis features (phi) that capture the essential aspects of the environment relevant to our tasks. In this case, we have two features: the forward velocity and the control reward. The SF-Critic will learn to predict the expected values of these features for any given state-action pair, and the Actor will learn to choose actions that maximize the weighted combination of these features according to the current task's weights (w).
 
             # Calculate actual scalar reward for logging purposes based on current task
-            scalar_reward = float(np.dot(phi, w_current.numpy())[0])
-            episode_return += scalar_reward
+            scalar_reward = float(np.dot(phi, w_current.numpy())[0]) # For logging and plotting, we compute the actual scalar reward that the agent receives based on the current task's weights. This is done by taking the dot product of the phi vector with the current task's weight vector w. This scalar reward is what we will use to track the agent's performance over time, even though the learning updates are based on the successor features and task weights.
+            episode_return += scalar_reward # We accumulate the scalar reward for the current episode to track the episode return, which is what we will plot in the results. The episode return gives us a measure of how well the agent is performing on the current task, even though the underlying learning mechanism is based on successor features and task weights.
+            # The accumulation happens over timesteps (often just called "steps") within a single episode.
+
+            # In Reinforcement Learning, the interaction with the environment is naturally structured as a nested loop, even if it is sometimes written as a single flat loop in the code.
+            # 1. The Inner Loop (Timesteps): A timestep is a single fraction of a second in the MuJoCo simulation.
+            #    - The agent looks at the state;
+            #    - It decides on an action (joint torques);
+            #    - It takes that action in the environment;
+            #    -The environment moves forward by one timestep (updates the physical state) and returns an immediate scalar reward (e.g., +2.5 for moving slightly forward during that split second).
 
             # 3. Store in Buffer
             replay_buffer.add(state, action, phi, next_state, float(done))
