@@ -51,17 +51,14 @@ def train_actor(actor, sf_critic, task_weights, state_batch, actor_optimizer):
     state_batch: Batch of states sampled from the replay buffer
     """
     actor_optimizer.zero_grad()
-# here the critic is fixed. Critic predicts the psi given state and action.
-# here the psi are fixed. The actor is trained to output the action
-# action + state -> critic -> psi -> dot product with w -> Q value -> maximize Q value by changing the action output by the actor. The critic is fixed, so the actor learns to output actions that maximize the critic's output (psi), which in turn should lead to higher rewards as defined by the task weights (w).
-# critic gives psi that is fixed, you change the action a to maximise the dot product (Q value)
+    # Logical scheme: action + state -> critic -> psi -> dot-product with w -> Q-value -> maximize Q-value by changing Actor weights (changing output action)  
+    # The critic is fixed, so the actor learns to output actions that maximize the critic's output (psi), which in turn should lead to higher rewards as defined by the task weights (w).
 
     # 1. The Actor decides the action based on the state
     actions = actor(state_batch) 
     
     # 2. The SF-Critic predicts the psi vector for those actions
     psi_values = sf_critic(state_batch, actions)
-    # [PROBLEM] q values should depend on phi, why do they depend only on the psi predicted by the critic ?; psi should depend on phi
 
     # 3. Compute the Q-value as the dot product between psi and the task weights w
     # (Equivalent to Q(s, a) = psi(s,a)^T * w)
@@ -105,18 +102,14 @@ def train_critic(
     with torch.no_grad(): # We use torch.no_grad() to indicate that we do not want to compute gradients for the operations within this block. This is because we are calculating the target values for the critic, and we do not want to backpropagate through the target network or the actor when computing these targets.
 
         # The target for the critic is the immediate features (phi) plus the discounted expected future features.
-        next_action = actor_target(next_state) # we are in the phase where we have collected the sets on the replay buffer, so we know the next state. We are using this to train the critic.
+        next_action = actor_target(next_state) # We are using data from the experience replay buffer (state, action, next_state)
         # phi is already observed, it is the immediate features after taking the action in the current state. We want to predict the expected future features (psi) given the current state and action, and we use the target critic to predict the expected future features for the next state and next action. The target for the critic is then the immediate features (phi) plus the discounted expected future features.
 
         # phi enters in the training of the critic because it represents the immediate features observed after taking the action in the current state. The critic is trained to predict the expected future features (psi) given a state-action pair, and the target for this prediction includes both the immediate features (phi) and the discounted expected future features.
         # Target psi = immediate features (phi) + discounted expected future features.
-        target_psi = phi + gamma * (1 - done) * sf_critic_target(next_state, next_action) # if the episode is done, we don't add the FUTURE features, hence the (1 - done) term.
+        target_psi = phi + gamma * (1 - done) * sf_critic_target(next_state, next_action) # if the episode is terminated, we don't add the FUTURE features, hence the (1 - done) term.
         # TD target for the critic: immediate features + discounted expected future features
-    current_psi = sf_critic(state, action) # The critic's current prediction of psi for the given state and action. It is already maximized with respect to the action because we are using the actor to select the action that maximizes the critic's output.
-    # input: present action and state, output: psi(s,a) which is the expected future features starting from state s and taking action a, following the current policy thereafter.
-    # actor is trained to output the continuous action that maximizes the critic's output (psi), while the critic is trained to predict the expected future features (psi) for the given state-action pair, using the immediate features (phi) and the discounted expected future features as targets.
-    # [PROBLEM] Why maximise psi? What's the meaning? Psi represents the expected future features, and by maximizing it, we are effectively trying to find actions that lead to states with desirable features in the future, as defined by the task weights (w). The actor is trained to select actions that maximize the critic's output (psi), which in turn should lead to higher rewards as defined by the task weights. The critic is trained to accurately predict psi, which is essential for providing meaningful feedback to the actor during training.
-    # maximise psi means maximise the dot product between psi and w, which is the Q value, so we are trying to find actions that lead to states with desirable features in the future, as defined by the task weights (w).
+    current_psi = sf_critic(state, action) # TD Learning of the critic's current prediction of psi for the given state and action. 
     critic_loss = F.mse_loss(current_psi, target_psi)
 
     optimizer.zero_grad()
@@ -127,11 +120,11 @@ def train_critic(
 
     optimizer.step()
 
-    # FIX (observability): return the critic loss so it can be logged during training,
+    # Return the critic loss so it can be logged during training,
     # making it easier to detect if the critic is diverging or failing to converge.
     return critic_loss.item()
 
-# [Problem] we are doing something quite different from the paper since we are not predictin the phi with another branch of the network
-# we are constructing  phi for being already optimised to give the correct reward in the scalar products
-# They use and encoder. Here the world is simply given by a hand-made encoding (torques, velocity etc)
-# So we don't need another branch of an NN to optimise phi, we can already craft the optimised one. 
+# We are doing something quite different from the paper since we are not predicting the phi with another branch of the network, 
+# but we are defining phi such that it is already optimised to give the correct reward in the scalar products
+# while they use another encoder network. Here the world is simply given by a hand-made encoding (torques, velocity etc),
+# so we don't need another branch of an NN to optimise phi, we can already craft the optimised one. 

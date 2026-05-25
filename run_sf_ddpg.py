@@ -22,7 +22,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # A simple replay buffer to store transitions and sample batches for training.
 class ReplayBuffer:
     def __init__(self, max_size=1e5):
-        self.storage = [] # A list to hold the transitions (state, action, phi, next_state, done)
+        self.storage = [] # A list to hold the transitions (state, action, phi, next_state, terminated)
         self.max_size = int(max_size) # Maximum number of transitions the buffer can hold. Once we exceed this, we will start overwriting old transitions in a circular manner.
         self.ptr = 0 # A pointer to keep track of where to insert the next transition when the buffer is full. It starts at 0 and increments with each new transition, wrapping around to the beginning of the buffer when it reaches max_size.
 
@@ -32,10 +32,10 @@ class ReplayBuffer:
     # - action: The action taken by the agent.
     # - phi: The feature vector representing the immediate rewards.
     # - next_state: The state of the environment after taking the action.
-    # - done: A boolean indicating whether the episode has ended.
-    def add(self, state, action, phi, next_state, done):
+    # - terminated: A boolean indicating whether the episode has ended.
+    def add(self, state, action, phi, next_state, terminated):
 
-        data = (state, action, phi, next_state, done)
+        data = (state, action, phi, next_state, terminated)
 
         # If the buffer is not yet full, append the new transition.
         if len(self.storage) < self.max_size:
@@ -63,8 +63,8 @@ class ReplayBuffer:
 
         batch = [self.storage[i] for i in indices] # We create a list of sampled transitions by indexing into the storage with the randomly generated indices. Each entry in this list is a tuple of (state, action, phi, next_state, done).
 
-        states, actions, phis, next_states, dones = map(np.array, zip(*batch)) # We use zip(*) to transpose the list
-        # of transitions into separate lists for states, actions, phis, next_states, and dones.
+        states, actions, phis, next_states, term_values = map(np.array, zip(*batch)) # We use zip(*) to transpose the list
+        # of transitions into separate lists for states, actions, phis, next_states, and terminated.
         # Then we convert each of these lists into NumPy arrays for easier manipulation during training.
 
         return (
@@ -72,7 +72,7 @@ class ReplayBuffer:
             torch.tensor(actions, dtype=torch.float32, device=device),
             torch.tensor(phis, dtype=torch.float32, device=device),
             torch.tensor(next_states, dtype=torch.float32, device=device),
-            torch.tensor(dones, dtype=torch.float32, device=device).unsqueeze(1)
+            torch.tensor(term_values, dtype=torch.float32, device=device).unsqueeze(1)
         )
 
         # We return the sampled batch as PyTorch tensors, which will be used for training the neural networks.
@@ -121,7 +121,7 @@ def train_sf_ddpg(
     # ---------------------------------------------------------
     actor = Actor(state_dim, action_dim, max_action).to(device)
 
-    actor_target = deepcopy(actor).to(device) # we don't want gradients since this is a copy ?
+    actor_target = deepcopy(actor).to(device)
     # Set target networks to eval mode. This is a no-op for plain MLPs
     # (no BatchNorm or Dropout), but is good practice: it signals clearly
     # that these networks are used for inference only and should never
@@ -179,8 +179,8 @@ def train_sf_ddpg(
 
         episode_returns = []
 
-        # FIX (observability): initialise to 0.0 so that the logging print
-        # inside `if done:` never raises an UnboundLocalError on episodes
+        # initialise to 0.0 so that the logging print
+        # inside `if terminated:` never raises an UnboundLocalError on episodes
         # that finish before the replay buffer has enough samples to trigger
         # the first training update.
         critic_loss_val = 0.0
@@ -277,9 +277,6 @@ def train_sf_ddpg(
             # that the agent receives based on the current task's weights.
             # This is done by taking the dot product of the phi vector
             # with the current task's weight vector w.
-            # FIX (robustness): use .flatten() instead of .squeeze() so that
-            # the shape is always (feature_dim,) regardless of w_current's
-            # number of dimensions, avoiding accidental over-squeezing.
             scalar_reward = float( # R_t+1
                 phi @ w_current.detach().cpu().numpy().flatten()
             )
@@ -296,10 +293,10 @@ def train_sf_ddpg(
             # After taking the action and observing the next state and reward,
             # we store this transition in the replay buffer.
             # The replay buffer is a data structure that holds past experiences
-            # (state, action, phi, next_state, done)
+            # (state, action, phi, next_state, terminated)
             # that the agent can later sample from to learn.
             #
-            # FIX (RL correctness): we store `terminated` rather than `done`
+            # we store `terminated` rather than `done`
             # as the terminal flag. When `truncated=True` (time limit reached),
             # the episode ends administratively but the next state is still
             # physically valid. Bootstrapping should continue from it.
@@ -311,7 +308,7 @@ def train_sf_ddpg(
                 action,
                 phi,
                 next_state,
-                float(terminated)  # [PROBLEM] IS IT REALLY A FIX?  FIX: was float(done)
+                float(terminated)  
             )
 
             # We update the current state to the next state
@@ -330,12 +327,12 @@ def train_sf_ddpg(
 
                 # We sample a random batch of transitions
                 # from the replay buffer.
-                batch_states, batch_actions, batch_phis, batch_next_states, batch_dones = replay_buffer.sample(batch_size)
+                batch_states, batch_actions, batch_phis, batch_next_states, batch_term = replay_buffer.sample(batch_size)
 
                 # ---------------------------------------------------------
                 # Train Critic to predict Expected Features
                 # ---------------------------------------------------------
-                # FIX (observability): train_critic now returns the loss value
+                # train_critic returns the loss value
                 # so we can monitor critic convergence during training.
                 critic_loss_val = train_critic(
                     sf_critic,
@@ -345,10 +342,10 @@ def train_sf_ddpg(
                     batch_actions,
                     batch_phis,
                     batch_next_states,
-                    batch_dones,
+                    batch_term,
                     critic_optimizer
                 )
-# first train critic to have sensible psi predictions, then train the actor
+                # At first, we train the critic to have meaningful successor features predictions, then we train the Actor
                 # ---------------------------------------------------------
                 # Train Actor to maximize:
                 # Q(s,a) = ψ(s,a)^T w
@@ -392,7 +389,7 @@ def train_sf_ddpg(
                         f"Step: {step} | "
                         f"Episodes: {len(episode_returns)} | "
                         f"Moving Avg Return: {avg_ret:.2f} | "
-                        f"Critic Loss: {critic_loss_val:.4f}"  # FIX (observability): log critic loss
+                        f"Critic Loss: {critic_loss_val:.4f}"  
                     )
 
         returns_history.append(episode_returns)
@@ -464,12 +461,8 @@ def plot_results(returns_history):
     plt.show()
 
 # ---------------------------------------------------------
-# Main Entry Point
+# Main 
 # ---------------------------------------------------------
-# When we run this script,
-# it will execute the code within this block.
-# This is where we call the training function
-# and plot the results.
 if __name__ == "__main__":
 
     # Note:
