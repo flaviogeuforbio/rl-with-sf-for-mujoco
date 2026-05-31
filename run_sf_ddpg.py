@@ -10,6 +10,8 @@ import json
 # Import from the previously created file
 from ActorCritic import Actor, SFCritic, SFtrain_actor, SFtrain_critic, QCritic, Qtrain_actor, Qtrain_critic  
 from utils import ReplayBuffer, soft_update, plot_results
+
+WARMUP_STEPS = 1000  # Number of initial steps to take random actions for exploration
 # ---------------------------------------------------------
 # Device Setup
 # ---------------------------------------------------------
@@ -91,10 +93,8 @@ def train_sf_ddpg(
         w_current = task["w"]
 
         # Reset Replay Buffer on task switch (as per Chua 2024 distribution shift protocol)
-        #replay_buffer.clear()
-        # We should not clear the replay buffer when switching tasks, because we want to test the agent's ability to adapt to the new task distribution without forgetting the old one. Clearing the buffer would give the agent a fresh start on the new task, which is not what we want to evaluate in this experiment. We want to see how well the agent can leverage its past experience (stored in the replay buffer) to learn the new task, even though the reward structure has changed.
-        # The replay buffer should contain a mix of experiences from both tasks, which will test the agent's ability to learn from a non-stationary distribution of data. This is a key aspect of the experiment, as it simulates a real-world scenario where an agent might need to adapt to changing objectives without losing all its prior knowledge. By keeping the replay buffer intact, we allow the agent to learn from both old and new experiences, which is essential for evaluating its adaptability and robustness in the face of distribution shifts.
-
+        replay_buffer.clear()
+        
         state, _ = env.reset()
 
         episode_return = 0
@@ -116,7 +116,7 @@ def train_sf_ddpg(
             # Pure Exploration:
             # For the first few thousand steps, the agent flails randomly
             # to gather diverse data.
-            if len(replay_buffer.storage) < batch_size * 10:
+            if len(replay_buffer.storage) < WARMUP_STEPS:
 
                 action = env.action_space.sample()
 
@@ -245,7 +245,7 @@ def train_sf_ddpg(
 
             # We only start training once we have enough samples
             # in the replay buffer to form a batch.
-            if len(replay_buffer.storage) >= batch_size:
+            if len(replay_buffer.storage) >= WARMUP_STEPS:
 
                 # We sample a random batch of transitions
                 # from the replay buffer.
@@ -395,8 +395,7 @@ def train_ddpg(
         w_current = task["w"]
 
         # Reset Replay Buffer on task switch (as per Chua 2024 distribution shift protocol)
-        #replay_buffer.clear()
-        # We should not clear the buffer (same conditions for comparison with SF-DDPG)
+        replay_buffer.clear()
 
         state, _ = env.reset()
 
@@ -419,7 +418,7 @@ def train_ddpg(
             # Pure Exploration:
             # For the first few thousand steps, the agent flails randomly
             # to gather diverse data.
-            if len(replay_buffer.storage) < batch_size * 10:
+            if len(replay_buffer.storage) < WARMUP_STEPS:
 
                 action = env.action_space.sample()
 
@@ -548,7 +547,7 @@ def train_ddpg(
 
             # We only start training once we have enough samples
             # in the replay buffer to form a batch.
-            if len(replay_buffer.storage) >= batch_size:
+            if len(replay_buffer.storage) >= WARMUP_STEPS:
 
                 # We sample a random batch of transitions
                 # from the replay buffer.
