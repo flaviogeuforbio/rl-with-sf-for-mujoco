@@ -623,7 +623,7 @@ def train_ddpg(
         returns_history.append(episode_returns)
 
         torch.save(actor.state_dict(), run_dir / f"q_actor_{phase}.pth")
-        torch.save(sf_critic.state_dict(), run_dir / f"q_critic_{phase}.pth")
+        torch.save(q_critic.state_dict(), run_dir / f"q_critic_{phase}.pth")
 
     env.close()
 
