@@ -312,9 +312,12 @@ def train_sf_ddpg(
                         f"Episodes: {len(episode_returns)} | "
                         f"Moving Avg Return: {avg_ret:.2f} | "
                         f"Critic Loss: {critic_loss_val:.4f}"  
-                    )
+                    ) 
 
         returns_history.append(episode_returns)
+
+        torch.save(actor.state_dict(), run_dir / f"sf_actor_{phase}.pth")
+        torch.save(sf_critic.state_dict(), run_dir / f"sf_critic_{phase}.pth")
 
     env.close()
 
@@ -619,6 +622,9 @@ def train_ddpg(
 
         returns_history.append(episode_returns)
 
+        torch.save(actor.state_dict(), run_dir / f"q_actor_{phase}.pth")
+        torch.save(sf_critic.state_dict(), run_dir / f"q_critic_{phase}.pth")
+
     env.close()
 
     return returns_history
@@ -652,6 +658,7 @@ if __name__ == "__main__":
     with open(run_dir / "sf_ddpg_returns.json", "w") as f:
         json.dump(SFreturns, f)
 
+
     # print("Debug: SF-DDPG returns history:")
     # print(SFreturns)
     # print(f"N. episodes for each task: {len(SFreturns[0])}, {len(SFreturns[1])}")
@@ -670,3 +677,5 @@ if __name__ == "__main__":
         # print("Debug: DDPG returns history:")
         # print(Qreturns)
         # print(f"N. episodes for each task: {len(Qreturns[0])}, {len(Qreturns[1])}")
+
+
