@@ -633,7 +633,8 @@ def parse_arg():
 # Main 
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    
+    from pathlib import Path
+
     args = parse_arg()
 
     run_dir = Path("artifacts") / args.run_name
