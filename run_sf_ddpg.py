@@ -91,7 +91,9 @@ def train_sf_ddpg(
         w_current = task["w"]
 
         # Reset Replay Buffer on task switch (as per Chua 2024 distribution shift protocol)
-        replay_buffer.clear()
+        #replay_buffer.clear()
+        # We should not clear the replay buffer when switching tasks, because we want to test the agent's ability to adapt to the new task distribution without forgetting the old one. Clearing the buffer would give the agent a fresh start on the new task, which is not what we want to evaluate in this experiment. We want to see how well the agent can leverage its past experience (stored in the replay buffer) to learn the new task, even though the reward structure has changed.
+        # The replay buffer should contain a mix of experiences from both tasks, which will test the agent's ability to learn from a non-stationary distribution of data. This is a key aspect of the experiment, as it simulates a real-world scenario where an agent might need to adapt to changing objectives without losing all its prior knowledge. By keeping the replay buffer intact, we allow the agent to learn from both old and new experiences, which is essential for evaluating its adaptability and robustness in the face of distribution shifts.
 
         state, _ = env.reset()
 
@@ -393,7 +395,8 @@ def train_ddpg(
         w_current = task["w"]
 
         # Reset Replay Buffer on task switch (as per Chua 2024 distribution shift protocol)
-        replay_buffer.clear()
+        #replay_buffer.clear()
+        # We should not clear the buffer (same conditions for comparison with SF-DDPG)
 
         state, _ = env.reset()
 
