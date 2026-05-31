@@ -151,11 +151,8 @@ def plot_results(returns_history, figName = None):
 
     plt.grid(True)
 
-    save_dir = Path("artifacts")
-    save_dir.mkdir(exist_ok=True, parents=True)
-
     if figName:
-        plt.savefig(save_dir / figName)
+        plt.savefig(figName)
     else:
         plt.show()
 

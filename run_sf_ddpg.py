@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from copy import deepcopy
+import json
 
 # Import from the previously created file
 from ActorCritic import Actor, SFCritic, SFtrain_actor, SFtrain_critic, QCritic, Qtrain_actor, Qtrain_critic  
@@ -625,6 +626,7 @@ def parse_arg():
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps_per_phase", type=int, default=50000)
     parser.add_argument("--baseline", action= "store_true", help="If True, runs also DDPG baseline after SF-DDPG, for comparison.")
+    parser.add_argument("--run_name", type=str, default="default_run", help="A name for this run, used to save results and plots with unique identifiers.")
     args = parser.parse_args()
     return args
 # ---------------------------------------------------------
@@ -634,13 +636,8 @@ if __name__ == "__main__":
     
     args = parse_arg()
 
-    # Note:
-    # 50,000 steps per phase is set for computational speed
-    # to verify the script runs.
-    #
-    # To see actual asymptotic convergence as in Figure 4a,
-    # increase to 1e6 steps.
-
+    run_dir = Path("artifacts") / args.run_name
+    run_dir.mkdir(exist_ok=True, parents=True)
 
     print("="*50)
     print("Training SF-DDPG...")
@@ -648,7 +645,9 @@ if __name__ == "__main__":
     SFreturns = train_sf_ddpg(
         steps_per_phase=args.steps_per_phase
     )
-    plot_results(SFreturns, "sf_ddpg_results.pdf")
+    plot_results(SFreturns, run_dir / "sf_ddpg_results.pdf")
+    with open(run_dir / "sf_ddpg_returns.json", "w") as f:
+        json.dump(SFreturns, f)
 
     # print("Debug: SF-DDPG returns history:")
     # print(SFreturns)
@@ -661,7 +660,9 @@ if __name__ == "__main__":
         Qreturns = train_ddpg(
             steps_per_phase=args.steps_per_phase
         )
-        plot_results(Qreturns, "ddpg_results.pdf")
+        plot_results(Qreturns, run_dir / "ddpg_results.pdf")
+        with open(run_dir / "ddpg_returns.json", "w") as f:
+            json.dump(Qreturns, f)
 
         # print("Debug: DDPG returns history:")
         # print(Qreturns)
