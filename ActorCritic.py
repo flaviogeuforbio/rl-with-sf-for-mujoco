@@ -82,6 +82,7 @@ def SFtrain_actor(actor, sf_critic, task_weights, state_batch, actor_optimizer):
 def SFtrain_critic(
     sf_critic,
     sf_critic_target,
+    task_weights, 
     actor_target, # We use the target actor to compute the next action for stability.
     state,
     action,
@@ -106,11 +107,11 @@ def SFtrain_critic(
         # phi is already observed, it is the immediate features after taking the action in the current state. We want to predict the expected future features (psi) given the current state and action, and we use the target critic to predict the expected future features for the next state and next action. The target for the critic is then the immediate features (phi) plus the discounted expected future features.
 
         # phi enters in the training of the critic because it represents the immediate features observed after taking the action in the current state. The critic is trained to predict the expected future features (psi) given a state-action pair, and the target for this prediction includes both the immediate features (phi) and the discounted expected future features.
-        # Target psi = immediate features (phi) + discounted expected future features.
-        target_psi = phi + gamma * (1 - done) * sf_critic_target(next_state, next_action) # if the episode is terminated, we don't add the FUTURE features, hence the (1 - done) term.
+        # Target q = immediate features (phi) + discounted expected future features.
+        target_q = phi @ task_weights + gamma * (1 - done) * (sf_critic_target(next_state, next_action) @ task_weights)# if the episode is terminated, we don't add the FUTURE features, hence the (1 - done) term.
         # TD target for the critic: immediate features + discounted expected future features
-    current_psi = sf_critic(state, action) # TD Learning of the critic's current prediction of psi for the given state and action. 
-    critic_loss = F.mse_loss(current_psi, target_psi)
+    current_q = sf_critic(state, action) @ task_weights # TD Learning of the critic's current prediction of psi for the given state and action. 
+    critic_loss = F.mse_loss(current_q, target_q)
 
     optimizer.zero_grad()
     critic_loss.backward()
