@@ -10,7 +10,7 @@ import json
 
 # Import from the previously created file
 from ActorCritic import Actor, SFCritic, SFtrain_actor, SFtrain_critic, QCritic, Qtrain_actor, Qtrain_critic  
-from utils import ReplayBuffer, soft_update, plot_results
+from utils import ReplayBuffer, soft_update, plot_results, evaluate_zero_shot_transfer_learning_sf
 
 WARMUP_STEPS = 1000  # Number of initial steps to take random actions for exploration
 # ---------------------------------------------------------

@@ -1,6 +1,7 @@
 from pathlib import Path 
 import numpy as np
 import torch
+import gymnasium as gym
 import matplotlib.pyplot as plt
 
 # ---------------------------------------------------------
@@ -155,4 +156,120 @@ def plot_results(returns_history, figName = None):
         plt.savefig(figName)
     else:
         plt.show()
+
+
+#-------------------------------------------------------------
+#EVALUATING ZERO-SHOT TRANSFER LEARNING FOR SF
+
+#function to optimize a given initial action according to task-conditioned Q value (psi @ w)
+def optimize_action_with_sf(
+    state, 
+    sf_critic, 
+    init_action, 
+    task_weights, 
+    max_action, 
+    n_steps: int, 
+    step_size: float, 
+    action_l2: float = 1e-3 
+):
+    
+    #set eval mode for actor/critic
+    sf_critic.eval()
+
+    action = init_action.clone().detach().requires_grad_(True)
+
+    for _ in range(n_steps):
+        #calculate sf and q value for current action
+        psi = sf_critic(state, action)
+        q_value = torch.matmul(psi, task_weights)
+
+        #compute a regularization term to control action magnitude
+        action_penalty = action_l2 * (action ** 2).mean()
+
+        #compute the loss: the goal is to maximize (q_value - action_penalty)
+        loss = -(q_value.mean() - action_penalty)
+
+        #zero-ing action gradients
+        if action.grad is not None: 
+            action.grad.zero_()
+
+        loss.backward() #backprop the new grads
+
+        with torch.no_grad():
+            action -= step_size * action.grad
+            action.clamp_(-max_action, max_action)
+
+        action = action.detach().requires_grad_(True)
+
+    return action.detach()
+
+#wrapper to evaluate zero-shot transfer learning (new task weights) on a bunch of episodes (using action optimization with gradient descent)
+def evaluate_zero_shot_transfer_learning_sf(
+    env_name, 
+    actor, 
+    sf_critic, 
+    task_weights, 
+    max_action, 
+    device,
+    episodes = 5, 
+    n_action_opt_steps = 20, 
+    action_opt_step_size = 0.05, 
+):
+    
+    #creating environment 
+    env = gym.make()
+    returns = []
+
+    actor.eval()
+    sf_critic.eval()
+
+    for _ in range(episodes):
+        state, _ = env.reset()
+        episode_return = 0.0 
+
+        done = False
+
+        while not done: 
+            state_tensor = torch.tensor(
+                state, 
+                dtype = torch.float32, 
+                device = device
+            ).unsqueeze(0) #[1, state_dim]
+
+            #generating initial action (according to the actor optimized for the previous task)
+            with torch.no_grad():
+                init_action = actor(state_tensor)
+
+            #optimizing the action with gradient descent
+            optimized_action = optimize_action_with_sf(
+                state = state_tensor, 
+                sf_critic = sf_critic,
+                init_action = init_action, 
+                task_weights = task_weights, 
+                max_action = max_action, 
+                n_steps = n_action_opt_steps, 
+                step_size = action_opt_step_size
+            )
+
+            action_np = optimized_action.cpu().numpy()[0] #convert to numpy 
+
+            next_state, _, terminated, truncated, info = env.step(action_np)
+            done = terminated or truncated
+
+            velocity = info.get("x_velocity", 0.0)
+            ctrl_reward = info.get("reward_ctrl", 0.0)
+
+            #computing handcrafted phi and immediate reward as scalar product
+            phi = np.array([velocity, ctrl_reward], dtype = np.float32)
+            scalar_reward = float(phi @ task_weights.detach().cpu().numpy().flatten())
+
+            episode_return += scalar_reward
+            state = next_state
+
+        returns.append(episode_return) 
+
+    env.close()
+
+    return float(np.mean(returns)), float(np.std(returns))
+
 
