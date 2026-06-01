@@ -265,6 +265,7 @@ def main():
 
     parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
+    parser.add_argument("--mode", type=str, default="all")
     parser.add_argument("--phase", type=int, default=0)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--max_episode_steps", type=int, default=1000)
@@ -297,57 +298,61 @@ def main():
     print(f"Loaded phase: {args.phase}")
     print("=" * 80)
 
-    print("Evaluating SF actor only...")
-    results["sf_actor_only"] = evaluate_policy(
-        env_name=args.env_name,
-        actor=sf_actor,
-        task_weights=eval_task_weights,
-        max_action=max_action,
-        mode="actor_only",
-        episodes=args.episodes,
-        max_episode_steps=args.max_episode_steps,
-    )
+    if args.mode == "all" or args.mode == "sf_actor_only":
+        print("Evaluating SF actor only...")
+        results["sf_actor_only"] = evaluate_policy(
+            env_name=args.env_name,
+            actor=sf_actor,
+            task_weights=eval_task_weights,
+            max_action=max_action,
+            mode="actor_only",
+            episodes=args.episodes,
+            max_episode_steps=args.max_episode_steps,
+        )
 
-    print("Evaluating SF actor + action-space gradient ascent...")
-    results["sf_action_optimization"] = evaluate_policy(
-        env_name=args.env_name,
-        actor=sf_actor,
-        sf_critic=sf_critic,
-        task_weights=eval_task_weights,
-        max_action=max_action,
-        mode="sf_action_optimization",
-        episodes=args.episodes,
-        max_episode_steps=args.max_episode_steps,
-        opt_steps=args.opt_steps,
-        opt_step_size=args.opt_step_size,
-        action_l2=args.action_l2,
-    )
+    if args.mode == "all" or args.mode == "sf_action_optimization": 
+        print("Evaluating SF actor + action-space gradient ascent...")
+        results["sf_action_optimization"] = evaluate_policy(
+            env_name=args.env_name,
+            actor=sf_actor,
+            sf_critic=sf_critic,
+            task_weights=eval_task_weights,
+            max_action=max_action,
+            mode="sf_action_optimization",
+            episodes=args.episodes,
+            max_episode_steps=args.max_episode_steps,
+            opt_steps=args.opt_steps,
+            opt_step_size=args.opt_step_size,
+            action_l2=args.action_l2,
+        )
 
-    print("Evaluating DDPG actor only...")
-    results["ddpg_actor_only"] = evaluate_policy(
-        env_name=args.env_name,
-        actor=q_actor,
-        task_weights=eval_task_weights,
-        max_action=max_action,
-        mode="actor_only",
-        episodes=args.episodes,
-        max_episode_steps=args.max_episode_steps,
-    )
+    if args.mode == "all" or args.mode == "ddpg_actor_only":
+        print("Evaluating DDPG actor only...")
+        results["ddpg_actor_only"] = evaluate_policy(
+            env_name=args.env_name,
+            actor=q_actor,
+            task_weights=eval_task_weights,
+            max_action=max_action,
+            mode="actor_only",
+            episodes=args.episodes,
+            max_episode_steps=args.max_episode_steps,
+        )
 
-    print("Evaluating DDPG actor + Q-gradient ascent...")
-    results["ddpg_q_action_optimization"] = evaluate_policy(
-        env_name=args.env_name,
-        actor=q_actor,
-        q_critic=q_critic,
-        task_weights=eval_task_weights,
-        max_action=max_action,
-        mode="q_action_optimization",
-        episodes=args.episodes,
-        max_episode_steps=args.max_episode_steps,
-        opt_steps=args.opt_steps,
-        opt_step_size=args.opt_step_size,
-        action_l2=args.action_l2,
-    )
+    if args.mode == "all" or args.mode == "ddpg_q_action_optimization":
+        print("Evaluating DDPG actor + Q-gradient ascent...")
+        results["ddpg_q_action_optimization"] = evaluate_policy(
+            env_name=args.env_name,
+            actor=q_actor,
+            q_critic=q_critic,
+            task_weights=eval_task_weights,
+            max_action=max_action,
+            mode="q_action_optimization",
+            episodes=args.episodes,
+            max_episode_steps=args.max_episode_steps,
+            opt_steps=args.opt_steps,
+            opt_step_size=args.opt_step_size,
+            action_l2=args.action_l2,
+        )
 
     print("\nResults:")
     for key, value in results.items():
