@@ -263,7 +263,7 @@ def load_models(run_dir, env_name, phase):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--run_dir", type=str, required=True)
+    parser.add_argument("--run_name", type=str, required=True)
     parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
     parser.add_argument("--phase", type=int, default=0)
     parser.add_argument("--episodes", type=int, default=10)
@@ -275,7 +275,7 @@ def main():
 
     args = parser.parse_args()
 
-    run_dir = Path(args.run_dir)
+    run_dir = Path("artifacts") / args.run_name
 
     w_forward, w_backward = make_task_weights(device)
 
