@@ -261,6 +261,7 @@ def train_sf_ddpg(
                 critic_loss_val = SFtrain_critic(
                     sf_critic,
                     sf_critic_target,
+                    w_current, 
                     actor_target,
                     batch_states,
                     batch_actions,
