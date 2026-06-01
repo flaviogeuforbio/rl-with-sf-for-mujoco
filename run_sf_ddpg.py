@@ -24,9 +24,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Main Training Loop
 # ---------------------------------------------------------
 def train_sf_ddpg(
+    run_dir: Path | str,
     env_name="HalfCheetah-v5",
     steps_per_phase=50000,
-    batch_size=64
+    batch_size=64,
 ):
 
     env = gym.make(env_name)
@@ -330,6 +331,7 @@ def train_sf_ddpg(
 # Main Training Loop
 # ---------------------------------------------------------
 def train_ddpg(
+    run_dir: Path | str,
     env_name="HalfCheetah-v5",
     steps_per_phase=50000,
     batch_size=64
@@ -652,6 +654,7 @@ if __name__ == "__main__":
     print("Training SF-DDPG...")
     print("="*50)
     SFreturns = train_sf_ddpg(
+        run_dir=run_dir,
         steps_per_phase=args.steps_per_phase
     )
     plot_results(SFreturns, run_dir / "sf_ddpg_results.pdf")
@@ -668,6 +671,7 @@ if __name__ == "__main__":
         print("Training DDPG...")  
         print("="*50)
         Qreturns = train_ddpg(
+            run_dir=run_dir,
             steps_per_phase=args.steps_per_phase
         )
         plot_results(Qreturns, run_dir / "ddpg_results.pdf")
