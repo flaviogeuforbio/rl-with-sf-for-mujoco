@@ -29,6 +29,7 @@ def train_sf_ddpg(
     env_name="HalfCheetah-v5",
     steps_per_phase=50000,
     batch_size=64,
+    lambda_vec=0.05
 ):
 
     env = gym.make(env_name)
@@ -258,7 +259,7 @@ def train_sf_ddpg(
                 # ---------------------------------------------------------
                 # train_critic returns the loss value
                 # so we can monitor critic convergence during training.
-                critic_loss_val = SFtrain_critic(
+                critic_loss_val, q_loss_val, vec_loss_val = SFtrain_critic(
                     sf_critic,
                     sf_critic_target,
                     w_current, 
@@ -268,7 +269,9 @@ def train_sf_ddpg(
                     batch_phis,
                     batch_next_states,
                     batch_term,
-                    critic_optimizer
+                    critic_optimizer,
+                    lambda_vec = lambda_vec
+
                 )
                 # At first, we train the critic to have meaningful successor features predictions, then we train the Actor
                 # ---------------------------------------------------------
@@ -314,7 +317,9 @@ def train_sf_ddpg(
                         f"Step: {step} | "
                         f"Episodes: {len(episode_returns)} | "
                         f"Moving Avg Return: {avg_ret:.2f} | "
-                        f"Critic Loss: {critic_loss_val:.4f}"  
+                        f"Critic Loss: {critic_loss_val:.4f} | "
+                        f"Q Critic Loss: {q_loss_val:.4f} | "
+                        f"Vec Critic Loss: {vec_loss_val:.4f}"  
                     ) 
 
         returns_history.append(episode_returns)
@@ -637,6 +642,7 @@ def parse_arg():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps_per_phase", type=int, default=50000)
+    parser.add_argument("--lambda_vec", type=float, default=0.05, help = "Vectorial TD loss term weight")
     parser.add_argument("--baseline", action= "store_true", help="If True, runs also DDPG baseline after SF-DDPG, for comparison.")
     parser.add_argument("--run_name", type=str, default="default_run", help="A name for this run, used to save results and plots with unique identifiers.")
     args = parser.parse_args()
@@ -657,7 +663,8 @@ if __name__ == "__main__":
     print("="*50)
     SFreturns = train_sf_ddpg(
         run_dir=run_dir,
-        steps_per_phase=args.steps_per_phase
+        steps_per_phase=args.steps_per_phase,
+        lambda_vec = args.lambda_vec
     )
     plot_results(SFreturns, run_dir / "sf_ddpg_results.pdf")
     with open(run_dir / "sf_ddpg_returns.json", "w") as f:

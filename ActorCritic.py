@@ -90,7 +90,8 @@ def SFtrain_critic(
     next_state,
     done,
     optimizer,
-    gamma=0.99
+    gamma=0.99,
+    lambda_vec=0.05
 ):
 # The critic is trained on the Temporal Difference.
 
@@ -108,13 +109,21 @@ def SFtrain_critic(
 
         # phi enters in the training of the critic because it represents the immediate features observed after taking the action in the current state. The critic is trained to predict the expected future features (psi) given a state-action pair, and the target for this prediction includes both the immediate features (phi) and the discounted expected future features.
         # Target q = immediate features (phi) + discounted expected future features.
+        target_psi = phi + gamma * (1 - done) * sf_critic_target(next_state, next_action)
+
         target_q = phi @ task_weights + gamma * (1 - done) * (sf_critic_target(next_state, next_action) @ task_weights)# if the episode is terminated, we don't add the FUTURE features, hence the (1 - done) term.
         # TD target for the critic: immediate features + discounted expected future features
+
+    current_psi = sf_critic_target(state, action)
+    vec_loss = F.mse_loss(current_psi, target_psi)
+
     current_q = sf_critic(state, action) @ task_weights # TD Learning of the critic's current prediction of psi for the given state and action. 
-    critic_loss = F.mse_loss(current_q, target_q)
+    q_loss = F.mse_loss(current_q, target_q)
+
+    loss = q_loss + lambda_vec * vec_loss
 
     optimizer.zero_grad()
-    critic_loss.backward()
+    loss.backward()
 
     # Gradient clipping improves numerical stability and helps avoid exploding gradients.
     torch.nn.utils.clip_grad_norm_(sf_critic.parameters(), max_norm=1.0)
@@ -123,7 +132,7 @@ def SFtrain_critic(
 
     # Return the critic loss so it can be logged during training,
     # making it easier to detect if the critic is diverging or failing to converge.
-    return critic_loss.item()
+    return loss.item(), q_loss.item(), vec_loss.item()
 
 # We are doing something quite different from the paper since we are not predicting the phi with another branch of the network, 
 # but we are defining phi such that it is already optimised to give the correct reward in the scalar products
