@@ -1,3 +1,6 @@
+import os 
+os.environ.setdefault("MUJOCO_GL", "egl")
+
 import argparse
 import json
 from pathlib import Path
@@ -5,6 +8,8 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 import torch
+
+import imageio.v2 as imageio
 
 from ActorCritic import Actor, SFCritic, QCritic
 
@@ -129,6 +134,9 @@ def evaluate_policy(
     opt_steps=20,
     opt_step_size=0.05,
     action_l2=1e-3,
+    render=False, 
+    render_path=None, 
+    render_fps=30
 ):
     """
     Evaluate one policy mode on a given task.
@@ -139,8 +147,13 @@ def evaluate_policy(
         - "q_action_optimization"
     """
 
-    env = gym.make(env_name)
+    if render:
+        env = gym.make(env_name, render_mode = "rgb_array")
+    else:
+        env = gym.make(env_name)
+
     returns = []
+    frames = []
 
     actor.eval()
 
@@ -150,9 +163,15 @@ def evaluate_policy(
     if q_critic is not None:
         q_critic.eval()
 
-    for _ in range(episodes):
+    for episode_idx in range(episodes):
         state, _ = env.reset()
         episode_return = 0.0
+
+        should_render_episode = render and episode_idx == 0
+        if should_render_episode:
+            frames.append(env.render()) 
+
+        previous_action = None
 
         for _ in range(max_episode_steps):
             state_tensor = torch.tensor(
@@ -161,8 +180,11 @@ def evaluate_policy(
                 device=device,
             ).unsqueeze(0)
 
-            with torch.no_grad():
-                init_action = actor(state_tensor)
+            if previous_action is None:
+                with torch.no_grad():
+                    init_action = actor(state_tensor)
+            else:
+                init_action = previous_action
 
             if mode == "actor_only":
                 action_tensor = init_action
@@ -182,6 +204,8 @@ def evaluate_policy(
                     action_l2=action_l2,
                 )
 
+                previous_action = action_tensor.detach()
+
             elif mode == "q_action_optimization":
                 if q_critic is None:
                     raise ValueError("q_critic must be provided for Q action optimization.")
@@ -196,6 +220,8 @@ def evaluate_policy(
                     action_l2=action_l2,
                 )
 
+                previous_action = action_tensor.detach()
+
             else:
                 raise ValueError(f"Unknown mode: {mode}")
 
@@ -203,6 +229,9 @@ def evaluate_policy(
             action = np.clip(action, -max_action, max_action)
 
             next_state, _, terminated, truncated, info = env.step(action)
+
+            if should_render_episode:
+                frames.append(env.render())
 
             reward = compute_scalar_reward(info, task_weights)
             episode_return += reward
@@ -215,6 +244,17 @@ def evaluate_policy(
         returns.append(episode_return)
 
     env.close()
+
+    #rendering episode video
+    if render:
+        if render_path is None:
+            raise ValueError("render_path must be provided when render=True.")
+        
+        render_path = Path(render_path)
+        render_path.parent.mkdir(parents=True, exist_ok=True)
+
+        imageio.mimsave(render_path, frames, fps=render_fps)
+        print(f"Saved render video to: {render_path}")
 
     return {
         "mean": float(np.mean(returns)),
@@ -272,6 +312,7 @@ def main():
     parser.add_argument("--opt_steps", type=int, default=20)
     parser.add_argument("--opt_step_size", type=float, default=0.05)
     parser.add_argument("--action_l2", type=float, default=1e-3)
+    parser.add_argument("--render", action="store_true", help="If set, save a video of the first evaluated episode.")
     parser.add_argument("--output_name", type=str, default="zero_shot_eval_results.json")
 
     args = parser.parse_args()
@@ -298,6 +339,7 @@ def main():
     print(f"Loaded phase: {args.phase}")
     print("=" * 80)
 
+    render_path = run_dir / "zeroshot_sf_actoronly.mp4"
     if args.mode == "all" or args.mode == "sf_actor_only":
         print("Evaluating SF actor only...")
         results["sf_actor_only"] = evaluate_policy(
@@ -308,8 +350,11 @@ def main():
             mode="actor_only",
             episodes=args.episodes,
             max_episode_steps=args.max_episode_steps,
+            render=args.render, 
+            render_path=render_path
         )
 
+    render_path = run_dir / "zeroshot_sf_actionopt.mp4"
     if args.mode == "all" or args.mode == "sf_action_optimization": 
         print("Evaluating SF actor + action-space gradient ascent...")
         results["sf_action_optimization"] = evaluate_policy(
@@ -324,8 +369,11 @@ def main():
             opt_steps=args.opt_steps,
             opt_step_size=args.opt_step_size,
             action_l2=args.action_l2,
+            render=args.render,
+            render_path=render_path
         )
 
+    render_path = run_dir / "zeroshot_ddpg_actoronly.mp4"
     if args.mode == "all" or args.mode == "ddpg_actor_only":
         print("Evaluating DDPG actor only...")
         results["ddpg_actor_only"] = evaluate_policy(
@@ -336,8 +384,11 @@ def main():
             mode="actor_only",
             episodes=args.episodes,
             max_episode_steps=args.max_episode_steps,
+            render=args.render, 
+            render_path=render_path
         )
 
+    render_path = run_dir / "zeroshot_ddpg_actionopt.mp4"
     if args.mode == "all" or args.mode == "ddpg_q_action_optimization":
         print("Evaluating DDPG actor + Q-gradient ascent...")
         results["ddpg_q_action_optimization"] = evaluate_policy(
@@ -352,6 +403,8 @@ def main():
             opt_steps=args.opt_steps,
             opt_step_size=args.opt_step_size,
             action_l2=args.action_l2,
+            render=args.render, 
+            render_path=render_path
         )
 
     print("\nResults:")
