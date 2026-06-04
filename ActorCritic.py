@@ -115,7 +115,7 @@ def SFtrain_critic(
         target_q = phi @ task_weights + gamma * (1 - done) * (sf_critic_target(next_state, next_action) @ task_weights)# if the episode is terminated, we don't add the FUTURE features, hence the (1 - done) term.
         # TD target for the critic: immediate features + discounted expected future features
 
-    current_psi = sf_critic_target(state, action)
+    current_psi = sf_critic(state, action)
     vec_loss = F.mse_loss(current_psi, target_psi)
 
     current_q = sf_critic(state, action) @ task_weights # TD Learning of the critic's current prediction of psi for the given state and action. 
