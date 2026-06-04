@@ -29,6 +29,7 @@ def train_sf_ddpg(
     env_name="HalfCheetah-v5",
     steps_per_phase=50000,
     batch_size=64,
+    lambda_q=1.0,
     lambda_vec=0.05
 ):
 
@@ -270,6 +271,7 @@ def train_sf_ddpg(
                     batch_next_states,
                     batch_term,
                     critic_optimizer,
+                    lambda_q = lambda_q, 
                     lambda_vec = lambda_vec
 
                 )
@@ -642,7 +644,8 @@ def parse_arg():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps_per_phase", type=int, default=50000)
-    parser.add_argument("--lambda_vec", type=float, default=0.05, help = "Vectorial TD loss term weight")
+    parser.add_argument("--lambda_q", type=float, default=1.0, help = "Q-SF-TD loss term weight")
+    parser.add_argument("--lambda_vec", type=float, default=0.05, help = "Vectorial TD loss (standard SF-TD) term weight")
     parser.add_argument("--baseline", action= "store_true", help="If True, runs also DDPG baseline after SF-DDPG, for comparison.")
     parser.add_argument("--run_name", type=str, default="default_run", help="A name for this run, used to save results and plots with unique identifiers.")
     args = parser.parse_args()
@@ -664,6 +667,7 @@ if __name__ == "__main__":
     SFreturns = train_sf_ddpg(
         run_dir=run_dir,
         steps_per_phase=args.steps_per_phase,
+        lambda_q = args.lambda_q,
         lambda_vec = args.lambda_vec
     )
     plot_results(SFreturns, run_dir / "sf_ddpg_results.pdf")

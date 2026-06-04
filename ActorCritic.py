@@ -91,6 +91,7 @@ def SFtrain_critic(
     done,
     optimizer,
     gamma=0.99,
+    lambda_q=1.0,
     lambda_vec=0.05
 ):
 # The critic is trained on the Temporal Difference.
@@ -120,7 +121,7 @@ def SFtrain_critic(
     current_q = sf_critic(state, action) @ task_weights # TD Learning of the critic's current prediction of psi for the given state and action. 
     q_loss = F.mse_loss(current_q, target_q)
 
-    loss = q_loss + lambda_vec * vec_loss
+    loss = lambda_q * q_loss + lambda_vec * vec_loss
 
     optimizer.zero_grad()
     loss.backward()
