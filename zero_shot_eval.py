@@ -180,11 +180,13 @@ def evaluate_policy(
                 device=device,
             ).unsqueeze(0)
 
-            if previous_action is None:
-                with torch.no_grad():
-                    init_action = actor(state_tensor)
-            else:
-                init_action = previous_action
+            # if previous_action is None:
+            #     with torch.no_grad():
+            #         init_action = actor(state_tensor)
+            # else:
+            #     init_action = previous_action
+            with torch.no_grad():
+                init_action = actor(state_tensor)
 
             if mode == "actor_only":
                 action_tensor = init_action
@@ -204,7 +206,7 @@ def evaluate_policy(
                     action_l2=action_l2,
                 )
 
-                previous_action = action_tensor.detach()
+                # previous_action = action_tensor.detach()
 
             elif mode == "q_action_optimization":
                 if q_critic is None:
@@ -220,7 +222,7 @@ def evaluate_policy(
                     action_l2=action_l2,
                 )
 
-                previous_action = action_tensor.detach()
+                # previous_action = action_tensor.detach()
 
             else:
                 raise ValueError(f"Unknown mode: {mode}")
