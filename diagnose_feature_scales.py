@@ -33,7 +33,7 @@ def load_actor(run_dir, env_name, model_type, phase):
 
     env.close()
 
-    actor = QActor(state_dim, action_dim, max_action).to(device)
+    actor = Actor(state_dim, action_dim, max_action).to(device)
 
     if model_type == "sf":
         actor_path = run_dir / f"sf_actor_{phase}.pth"
