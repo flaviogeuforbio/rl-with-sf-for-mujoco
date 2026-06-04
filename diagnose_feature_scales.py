@@ -6,7 +6,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from ActorCritic import QActor
+from ActorCritic import Actor
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
