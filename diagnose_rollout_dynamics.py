@@ -24,7 +24,16 @@ def make_task_weights(device):
 
 
 def compute_phi_and_reward(info, task_weights):
-    """Extract handcrafted features and compute scalar reward."""
+    """
+    Extract handcrafted HalfCheetah features and compute scalar reward.
+
+    In Gymnasium HalfCheetah, reward_ctrl is already negative:
+        reward_ctrl = -ctrl_cost
+
+    Therefore:
+        forward reward  =  x_velocity + reward_ctrl
+        backward reward = -x_velocity + reward_ctrl
+    """
     velocity = float(info.get("x_velocity", 0.0))
     ctrl_reward = float(info.get("reward_ctrl", 0.0))
 
@@ -70,29 +79,24 @@ def compute_action_diagnostics(actions, max_action):
     actions shape:
         [T, action_dim]
     """
-
     actions = np.asarray(actions, dtype=np.float64)
 
     if len(actions) == 0:
         return {}
 
     action_norms = np.linalg.norm(actions, axis=1)
-
-    # Fraction of action components close to the action bounds.
     saturation_fraction = float(np.mean(np.abs(actions) > 0.95 * max_action))
 
     diagnostics = {}
     diagnostics.update(summarize_array("action_norm", action_norms))
     diagnostics["action_saturation_fraction"] = saturation_fraction
 
-    # Delta action: ||a_t - a_{t-1}||
     if len(actions) >= 2:
         delta_actions = actions[1:] - actions[:-1]
         delta_norms = np.linalg.norm(delta_actions, axis=1)
 
         diagnostics.update(summarize_array("delta_action_norm", delta_norms))
 
-        # Sign-flip rate across all action dimensions and consecutive timesteps.
         signs = np.sign(actions)
         sign_flips = signs[1:] != signs[:-1]
         diagnostics["action_sign_flip_rate"] = float(np.mean(sign_flips))
@@ -100,16 +104,13 @@ def compute_action_diagnostics(actions, max_action):
         diagnostics.update(summarize_array("delta_action_norm", []))
         diagnostics["action_sign_flip_rate"] = None
 
-    # Jerk in action space: ||a_t - 2a_{t-1} + a_{t-2}||
     if len(actions) >= 3:
         jerk_actions = actions[2:] - 2.0 * actions[1:-1] + actions[:-2]
         jerk_norms = np.linalg.norm(jerk_actions, axis=1)
-
         diagnostics.update(summarize_array("action_jerk_norm", jerk_norms))
     else:
         diagnostics.update(summarize_array("action_jerk_norm", []))
 
-    # Per-dimension saturation fractions can be useful to detect specific joints.
     per_dim_sat = np.mean(np.abs(actions) > 0.95 * max_action, axis=0)
     diagnostics["action_saturation_fraction_per_dim"] = [
         float(x) for x in per_dim_sat
@@ -125,7 +126,6 @@ def compute_state_diagnostics(states):
     This does not assume a specific semantic meaning for each state dimension.
     It is meant to detect large excursions or instability.
     """
-
     states = np.asarray(states, dtype=np.float64)
 
     if len(states) == 0:
@@ -138,6 +138,144 @@ def compute_state_diagnostics(states):
         "state_max_per_dim": [float(x) for x in np.max(states, axis=0)],
         "state_abs_max_per_dim": [float(x) for x in np.max(np.abs(states), axis=0)],
     }
+
+
+def initialize_timeseries():
+    """Initialize a dictionary used to store one diagnostic episode over time."""
+    return {
+        "t": [],
+
+        # Reward and feature traces.
+        "x_velocity": [],
+        "ctrl_reward": [],
+        "scalar_reward": [],
+        "velocity_reward_term": [],
+        "ctrl_reward_term": [],
+        "cumulative_return": [],
+
+        # Action magnitude and temporal roughness.
+        "actor_action_norm": [],
+        "final_action_norm": [],
+        "delta_action_norm": [],
+        "action_jerk_norm": [],
+        "action_saturation_fraction": [],
+        "action_sign_flip_fraction": [],
+        "action_shift_from_actor": [],
+
+        # Critic optimization traces.
+        "predicted_q_before": [],
+        "predicted_q_after": [],
+        "predicted_q_improvement": [],
+
+        # Selected observation coordinates.
+        # Labels are based on common Gymnasium HalfCheetah-v5 documentation.
+        # Keep the raw indices too, because XML/version details may differ.
+        "obs_0_rootz": [],
+        "obs_1_rooty_angle": [],
+        "obs_8_x_velocity_observation": [],
+        "obs_10_candidate_angular_velocity": [],
+
+        # More general state instability proxies.
+        "state_l2_norm": [],
+        "state_velocity_block_l2_norm": [],
+
+        # Full arrays for optional deeper plotting.
+        "actor_actions": [],
+        "final_actions": [],
+        "states": [],
+    }
+
+
+def append_timeseries_step(
+    timeseries,
+    t,
+    state,
+    actor_action,
+    final_action,
+    previous_action,
+    previous_previous_action,
+    phi,
+    scalar_reward,
+    velocity_term,
+    ctrl_term,
+    cumulative_return,
+    max_action,
+    q_before=None,
+    q_after=None,
+    q_improvement=None,
+):
+    """Append one timestep to the diagnostic timeseries."""
+    state = np.asarray(state, dtype=np.float64)
+    actor_action = np.asarray(actor_action, dtype=np.float64)
+    final_action = np.asarray(final_action, dtype=np.float64)
+
+    if previous_action is None:
+        delta_action_norm = 0.0
+        sign_flip_fraction = 0.0
+    else:
+        previous_action = np.asarray(previous_action, dtype=np.float64)
+        delta_action_norm = float(np.linalg.norm(final_action - previous_action))
+        sign_flip_fraction = float(
+            np.mean(np.sign(final_action) != np.sign(previous_action))
+        )
+
+    if previous_action is None or previous_previous_action is None:
+        action_jerk_norm = 0.0
+    else:
+        previous_action = np.asarray(previous_action, dtype=np.float64)
+        previous_previous_action = np.asarray(previous_previous_action, dtype=np.float64)
+        jerk = final_action - 2.0 * previous_action + previous_previous_action
+        action_jerk_norm = float(np.linalg.norm(jerk))
+
+    saturation_fraction = float(np.mean(np.abs(final_action) > 0.95 * max_action))
+    action_shift = float(np.linalg.norm(final_action - actor_action))
+
+    timeseries["t"].append(int(t))
+
+    timeseries["x_velocity"].append(float(phi[0]))
+    timeseries["ctrl_reward"].append(float(phi[1]))
+    timeseries["scalar_reward"].append(float(scalar_reward))
+    timeseries["velocity_reward_term"].append(float(velocity_term))
+    timeseries["ctrl_reward_term"].append(float(ctrl_term))
+    timeseries["cumulative_return"].append(float(cumulative_return))
+
+    timeseries["actor_action_norm"].append(float(np.linalg.norm(actor_action)))
+    timeseries["final_action_norm"].append(float(np.linalg.norm(final_action)))
+    timeseries["delta_action_norm"].append(delta_action_norm)
+    timeseries["action_jerk_norm"].append(action_jerk_norm)
+    timeseries["action_saturation_fraction"].append(saturation_fraction)
+    timeseries["action_sign_flip_fraction"].append(sign_flip_fraction)
+    timeseries["action_shift_from_actor"].append(action_shift)
+
+    timeseries["predicted_q_before"].append(None if q_before is None else float(q_before))
+    timeseries["predicted_q_after"].append(None if q_after is None else float(q_after))
+    timeseries["predicted_q_improvement"].append(
+        None if q_improvement is None else float(q_improvement)
+    )
+
+    # Selected coordinates. Use None if the observation shape is unexpected.
+    timeseries["obs_0_rootz"].append(float(state[0]) if len(state) > 0 else None)
+    timeseries["obs_1_rooty_angle"].append(float(state[1]) if len(state) > 1 else None)
+    timeseries["obs_8_x_velocity_observation"].append(
+        float(state[8]) if len(state) > 8 else None
+    )
+    timeseries["obs_10_candidate_angular_velocity"].append(
+        float(state[10]) if len(state) > 10 else None
+    )
+
+    timeseries["state_l2_norm"].append(float(np.linalg.norm(state)))
+
+    if len(state) > 8:
+        velocity_block = state[8:]
+        timeseries["state_velocity_block_l2_norm"].append(
+            float(np.linalg.norm(velocity_block))
+        )
+    else:
+        timeseries["state_velocity_block_l2_norm"].append(None)
+
+    timeseries["actor_actions"].append([float(x) for x in actor_action])
+    timeseries["final_actions"].append([float(x) for x in final_action])
+    timeseries["states"].append([float(x) for x in state])
 
 
 def optimize_action_with_sf(
@@ -157,11 +295,10 @@ def optimize_action_with_sf(
 
     If return_diagnostics=True, also return predicted Q before/after optimization.
     """
-
     with torch.no_grad():
         q_before = torch.matmul(
             sf_critic(state_tensor, init_action),
-            task_weights
+            task_weights,
         ).mean().item()
 
     action = init_action.clone().detach().requires_grad_(True)
@@ -192,7 +329,7 @@ def optimize_action_with_sf(
     with torch.no_grad():
         q_after = torch.matmul(
             sf_critic(state_tensor, final_action),
-            task_weights
+            task_weights,
         ).mean().item()
 
     diagnostics = {
@@ -221,7 +358,6 @@ def optimize_action_with_qcritic(
     This is not true zero-shot reward reweighting, because the scalar critic
     is tied to its training reward.
     """
-
     with torch.no_grad():
         q_before = q_critic(state_tensor, init_action).mean().item()
 
@@ -264,7 +400,6 @@ def optimize_action_with_qcritic(
 
 def load_models(run_dir, env_name, phase):
     """Load SF-DDPG and DDPG models from a saved artifact directory."""
-
     env = gym.make(env_name)
 
     state_dim = env.observation_space.shape[0]
@@ -335,6 +470,8 @@ def diagnose_rollout_dynamics(
     render=False,
     render_path=None,
     render_fps=30,
+    save_timeseries=False,
+    timeseries_episode=0,
 ):
     """
     Run diagnostic rollouts and measure:
@@ -344,8 +481,8 @@ def diagnose_rollout_dynamics(
         - action saturation
         - critic Q before/after action optimization
         - state-space excursions
+        - optional per-timestep timeseries for one selected episode
     """
-
     env = gym.make(env_name, render_mode="rgb_array") if render else gym.make(env_name)
 
     frames = []
@@ -367,16 +504,25 @@ def diagnose_rollout_dynamics(
     q_improvements = []
     action_shifts = []
 
+    selected_timeseries = None
+
     for episode_idx in range(episodes):
         state, _ = env.reset()
         episode_return = 0.0
 
-        should_render = render and episode_idx == 0
+        should_render = render and episode_idx == timeseries_episode
+        should_save_timeseries = save_timeseries and episode_idx == timeseries_episode
+
+        if should_save_timeseries:
+            selected_timeseries = initialize_timeseries()
 
         if should_render:
             frames.append(env.render())
 
-        for _ in range(max_episode_steps):
+        previous_action = None
+        previous_previous_action = None
+
+        for step_idx in range(max_episode_steps):
             state_tensor = torch.tensor(
                 state,
                 dtype=torch.float32,
@@ -385,6 +531,10 @@ def diagnose_rollout_dynamics(
 
             with torch.no_grad():
                 actor_action_tensor = actor(state_tensor)
+
+            q_before = None
+            q_after = None
+            q_improvement = None
 
             if mode == "actor_only":
                 final_action_tensor = actor_action_tensor
@@ -405,9 +555,13 @@ def diagnose_rollout_dynamics(
                     return_diagnostics=True,
                 )
 
-                q_before_values.append(opt_diag["q_before"])
-                q_after_values.append(opt_diag["q_after"])
-                q_improvements.append(opt_diag["q_improvement"])
+                q_before = opt_diag["q_before"]
+                q_after = opt_diag["q_after"]
+                q_improvement = opt_diag["q_improvement"]
+
+                q_before_values.append(q_before)
+                q_after_values.append(q_after)
+                q_improvements.append(q_improvement)
                 action_shifts.append(opt_diag["action_shift_from_actor"])
 
             elif mode == "q_action_optimization":
@@ -425,9 +579,13 @@ def diagnose_rollout_dynamics(
                     return_diagnostics=True,
                 )
 
-                q_before_values.append(opt_diag["q_before"])
-                q_after_values.append(opt_diag["q_after"])
-                q_improvements.append(opt_diag["q_improvement"])
+                q_before = opt_diag["q_before"]
+                q_after = opt_diag["q_after"]
+                q_improvement = opt_diag["q_improvement"]
+
+                q_before_values.append(q_before)
+                q_after_values.append(q_after)
+                q_improvements.append(q_improvement)
                 action_shifts.append(opt_diag["action_shift_from_actor"])
 
             else:
@@ -450,6 +608,8 @@ def diagnose_rollout_dynamics(
             velocity = float(phi[0])
             ctrl_reward = float(phi[1])
 
+            episode_return += scalar_reward
+
             all_states.append(state.copy())
             all_actor_actions.append(actor_action.copy())
             all_final_actions.append(final_action.copy())
@@ -460,7 +620,29 @@ def diagnose_rollout_dynamics(
             velocity_terms.append(velocity_term)
             ctrl_terms.append(ctrl_term)
 
-            episode_return += scalar_reward
+            if should_save_timeseries:
+                append_timeseries_step(
+                    timeseries=selected_timeseries,
+                    t=step_idx,
+                    state=state,
+                    actor_action=actor_action,
+                    final_action=final_action,
+                    previous_action=previous_action,
+                    previous_previous_action=previous_previous_action,
+                    phi=phi,
+                    scalar_reward=scalar_reward,
+                    velocity_term=velocity_term,
+                    ctrl_term=ctrl_term,
+                    cumulative_return=episode_return,
+                    max_action=max_action,
+                    q_before=q_before,
+                    q_after=q_after,
+                    q_improvement=q_improvement,
+                )
+
+            previous_previous_action = None if previous_action is None else previous_action.copy()
+            previous_action = final_action.copy()
+
             state = next_state
 
             if terminated or truncated:
@@ -479,7 +661,6 @@ def diagnose_rollout_dynamics(
         imageio.mimsave(render_path, frames, fps=render_fps)
         print(f"Saved render video to: {render_path}")
 
-    # Convert to arrays.
     states_np = np.asarray(all_states, dtype=np.float64)
     actor_actions_np = np.asarray(all_actor_actions, dtype=np.float64)
     final_actions_np = np.asarray(all_final_actions, dtype=np.float64)
@@ -509,27 +690,26 @@ def diagnose_rollout_dynamics(
         "mean_abs_ctrl_term": float(mean_abs_ctrl_term),
         "velocity_term_abs_fraction": float(mean_abs_velocity_term / total_abs_terms),
         "ctrl_term_abs_fraction": float(mean_abs_ctrl_term / total_abs_terms),
+
+        "timeseries_episode": int(timeseries_episode),
+        "timeseries_saved": bool(save_timeseries),
     }
 
-    # Add reward/feature summaries.
     results.update(summarize_array("velocity", velocities_np))
     results.update(summarize_array("ctrl_reward", ctrl_np))
     results.update(summarize_array("scalar_reward", rewards_np))
     results.update(summarize_array("velocity_reward_term", velocity_terms_np))
     results.update(summarize_array("ctrl_reward_term", ctrl_terms_np))
 
-    # Add action diagnostics.
     actor_action_diag = compute_action_diagnostics(actor_actions_np, max_action)
     final_action_diag = compute_action_diagnostics(final_actions_np, max_action)
 
     results["actor_action_diagnostics"] = actor_action_diag
     results["final_action_diagnostics"] = final_action_diag
 
-    # Compare optimized/final action to actor action.
     action_shift_from_actor = np.linalg.norm(final_actions_np - actor_actions_np, axis=1)
     results.update(summarize_array("final_minus_actor_action_norm", action_shift_from_actor))
 
-    # Add critic optimization diagnostics.
     if len(q_before_values) > 0:
         q_before_np = np.asarray(q_before_values, dtype=np.float64)
         q_after_np = np.asarray(q_after_values, dtype=np.float64)
@@ -546,8 +726,10 @@ def diagnose_rollout_dynamics(
         results["predicted_q_improvement_mean"] = None
         results["optimization_action_shift_mean"] = None
 
-    # Add state diagnostics.
     results["state_diagnostics"] = compute_state_diagnostics(states_np)
+
+    if save_timeseries:
+        results["timeseries"] = selected_timeseries
 
     return results
 
@@ -583,6 +765,12 @@ def print_summary(results, mode):
         print(f"Predicted Q improvement: {results['predicted_q_improvement_mean']:.4f}")
         print(f"Mean ||a_final - a_actor||: {results['final_minus_actor_action_norm_mean']:.4f}")
 
+    if results.get("timeseries_saved", False):
+        print("\nTimeseries:")
+        print(f"Saved timeseries for episode index: {results['timeseries_episode']}")
+        if "timeseries" in results and results["timeseries"] is not None:
+            print(f"Timeseries length: {len(results['timeseries']['t'])}")
+
     print("=" * 80 + "\n")
 
 
@@ -609,8 +797,22 @@ def main():
     parser.add_argument("--opt_steps", type=int, default=250)
     parser.add_argument("--opt_step_size", type=float, default=0.2)
     parser.add_argument("--action_l2", type=float, default=1e-3)
+
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--render_fps", type=int, default=30)
+
+    parser.add_argument(
+        "--save_timeseries",
+        action="store_true",
+        help="If set, save per-timestep diagnostics for one selected episode.",
+    )
+    parser.add_argument(
+        "--timeseries_episode",
+        type=int,
+        default=0,
+        help="Episode index for timeseries/render synchronization.",
+    )
+
     parser.add_argument("--output_name", type=str, default=None)
 
     args = parser.parse_args()
@@ -635,7 +837,10 @@ def main():
     )
 
     if args.output_name is None:
-        output_name = f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}.json"
+        suffix = "timeseries" if (args.save_timeseries or args.render) else "summary"
+        output_name = (
+            f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_{suffix}.json"
+        )
     else:
         output_name = args.output_name
 
@@ -643,7 +848,12 @@ def main():
 
     render_path = None
     if args.render:
-        render_path = run_dir / f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}.mp4"
+        render_path = run_dir / (
+            f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_episode_{args.timeseries_episode}.mp4"
+        )
+
+    # If rendering, save the matching timeseries automatically.
+    save_timeseries = args.save_timeseries or args.render
 
     results = diagnose_rollout_dynamics(
         env_name=args.env_name,
@@ -661,6 +871,8 @@ def main():
         render=args.render,
         render_path=render_path,
         render_fps=args.render_fps,
+        save_timeseries=save_timeseries,
+        timeseries_episode=args.timeseries_episode,
     )
 
     print_summary(results, args.mode)
