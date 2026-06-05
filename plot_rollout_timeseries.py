@@ -461,8 +461,8 @@ def main():
         plot_reward_decomposition(ts, output_dir, event_steps=event_steps)
         plot_action_heatmap(ts, output_dir, action_key="final_actions", event_steps=event_steps)
         plot_action_heatmap(ts, output_dir, action_key="actor_actions", event_steps=event_steps)
-        plot_action_components(ts, output_dir, action_key="final_actions", event_steps=event_steps)
-        plot_action_components(ts, output_dir, action_key="actor_actions", event_steps=event_steps)
+        # plot_action_components(ts, output_dir, action_key="final_actions", event_steps=event_steps)
+        # plot_action_components(ts, output_dir, action_key="actor_actions", event_steps=event_steps)
         plot_critic_trace(ts, output_dir, event_steps=event_steps)
         plot_state_proxies(ts, output_dir, event_steps=event_steps)
 
