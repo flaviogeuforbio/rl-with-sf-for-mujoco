@@ -195,6 +195,9 @@ def train_sf_ddpg(
                 dtype=np.float32
             )
 
+            # s (long-term future rewards) = phi (short-term future reward) + gamma * psi'
+            # psi (...) = phi + gamma * phi' + gamma^2 * phi'' + ... (expected total future reward) = G_t
+
             # ---------------------------------------------------------
             # Calculate actual scalar reward for logging purposes
             # ---------------------------------------------------------
