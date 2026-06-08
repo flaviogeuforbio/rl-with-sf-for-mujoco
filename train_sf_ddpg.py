@@ -10,9 +10,10 @@ import json
 
 # Import from the previously created file
 from ActorCritic import Actor, SFCritic, SFtrain_actor, SFtrain_critic, QCritic, Qtrain_actor, Qtrain_critic  
-from utils import ReplayBuffer, soft_update, plot_results, evaluate_zero_shot_transfer_learning_sf
+from utils import ReplayBuffer, soft_update, plot_results, evaluate_zero_shot_transfer_learning_sf, set_seed
 
 WARMUP_STEPS = 1000  # Number of initial steps to take random actions for exploration
+
 # ---------------------------------------------------------
 # Device Setup
 # ---------------------------------------------------------
@@ -30,7 +31,8 @@ def train_sf_ddpg(
     steps_per_phase=50000,
     batch_size=64,
     lambda_q=1.0,
-    lambda_vec=0.05
+    lambda_vec=0.05,
+    seed=42  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
 ):
 
     env = gym.make(env_name)
@@ -99,7 +101,10 @@ def train_sf_ddpg(
         # Reset Replay Buffer on task switch (as per Chua 2024 distribution shift protocol)
         replay_buffer.clear()
         
-        state, _ = env.reset()
+        if phase == 0:
+            state, _ = env.reset(seed=seed)
+        else:
+            state, _ = env.reset()
 
         episode_return = 0
 
@@ -346,7 +351,8 @@ def train_ddpg(
     run_dir: Path | str,
     env_name="HalfCheetah-v5",
     steps_per_phase=50000,
-    batch_size=64
+    batch_size=64,
+     seed=42  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
 ):
 
     env = gym.make(env_name)
@@ -413,9 +419,11 @@ def train_ddpg(
 
         # Reset Replay Buffer on task switch (as per Chua 2024 distribution shift protocol)
         replay_buffer.clear()
-
-        state, _ = env.reset()
-
+        
+        if phase == 0:
+            state, _ = env.reset(seed=seed)
+        else:
+            state, _ = env.reset()
         episode_return = 0
 
         episode_returns = []
@@ -651,6 +659,7 @@ def parse_arg():
     parser.add_argument("--lambda_vec", type=float, default=0.05, help = "Vectorial TD loss (standard SF-TD) term weight")
     parser.add_argument("--baseline", action= "store_true", help="If True, runs also DDPG baseline after SF-DDPG, for comparison.")
     parser.add_argument("--run_name", type=str, default="default_run", help="A name for this run, used to save results and plots with unique identifiers.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
     return args
 # ---------------------------------------------------------
@@ -661,7 +670,10 @@ if __name__ == "__main__":
 
     args = parse_arg()
 
-    run_dir = Path("artifacts") / args.run_name
+    set_seed(args.seed) # <--- Set the seed globally
+
+    # Save inside a subfolder specific to this seed
+    run_dir = Path("artifacts") / args.run_name / f"seed_{args.seed}"
     run_dir.mkdir(exist_ok=True, parents=True)
 
     print("="*50)
@@ -671,9 +683,10 @@ if __name__ == "__main__":
         run_dir=run_dir,
         steps_per_phase=args.steps_per_phase,
         lambda_q = args.lambda_q,
-        lambda_vec = args.lambda_vec
+        lambda_vec = args.lambda_vec,
+        seed=args.seed  # Pass the seed to the training function to ensure reproducibility of environment interactions
     )
-    plot_results(SFreturns, run_dir / "sf_ddpg_results.pdf")
+    #plot_results(SFreturns, "SF-DDPG Sequential Training Adaptation (HalfCheetah)", run_dir / "sf_ddpg_results.pdf")
     with open(run_dir / "sf_ddpg_returns.json", "w") as f:
         json.dump(SFreturns, f)
 
@@ -688,9 +701,10 @@ if __name__ == "__main__":
         print("="*50)
         Qreturns = train_ddpg(
             run_dir=run_dir,
-            steps_per_phase=args.steps_per_phase
+            steps_per_phase=args.steps_per_phase,
+            seed=args.seed  # Pass the seed to the training function to ensure reproducibility of environment interactions
         )
-        plot_results(Qreturns, run_dir / "ddpg_results.pdf")
+        #plot_results(Qreturns, "Standard DDPG Sequential Training Adaptation (HalfCheetah)" , run_dir / "ddpg_results.pdf")
         with open(run_dir / "ddpg_returns.json", "w") as f:
             json.dump(Qreturns, f)
 

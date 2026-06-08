@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import gymnasium as gym
 import matplotlib.pyplot as plt
+import random
 
 # ---------------------------------------------------------
 # Device Setup
@@ -95,9 +96,9 @@ def soft_update(target, source, tau=0.005):
 # ---------------------------------------------------------
 # Plotting logic
 # ---------------------------------------------------------
-def plot_results(returns_history, figName = None):
+def plot_results(returns_history, title, figName = None):
 
-    plt.figure(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     # Calculate moving averages.
     window = 10
@@ -121,42 +122,47 @@ def plot_results(returns_history, figName = None):
         mode='valid'
     )
 
-    plt.plot(
+    ax.plot(
         np.arange(len(phase1_ma)),
         phase1_ma,
         label='Task 1 (Forward)',
         color='blue'
     )
 
-    plt.plot(
+    ax.plot(
         np.arange(len(phase1_ma), len(phase1_ma) + len(phase2_ma)),
         phase2_ma,
         label='Task 2 (Backward)',
         color='red'
     )
 
-    plt.axvline(
+    ax.axvline(
         x=len(phase1_ma),
         color='black',
         linestyle='--',
         label='Task Switch'
     )
 
-    plt.title('SF-DDPG Zero-Shot Adaptation (HalfCheetah)')
-
-    plt.xlabel('Episodes')
-
-    plt.ylabel('Episode Return')
-
-    plt.legend()
-
-    plt.grid(True)
+    ax.set_title(title)
+    ax.set_xlabel('Episodes')
+    ax.set_ylabel('Episode Return')
+    ax.legend()
+    ax.grid(True)
 
     if figName:
-        plt.savefig(figName)
+        fig.savefig(figName, bbox_inches='tight')
     else:
         plt.show()
 
+    return fig, ax
+#----------------------------------------------------------------------------
+# We set a random seed for reproducibility. This ensures that the same sequence of random numbers (and thus the same actions and environment dynamics) will occur each time we run the code, which is important for debugging and comparing results across runs.
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 #-------------------------------------------------------------
 #EVALUATING ZERO-SHOT TRANSFER LEARNING FOR SF
