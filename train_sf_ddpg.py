@@ -32,7 +32,8 @@ def train_sf_ddpg(
     batch_size=64,
     lambda_q=1.0,
     lambda_vec=0.05,
-    seed=42  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
+    seed=42,  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
+    backward_only=False
 ):
 
     env = gym.make(env_name)
@@ -85,10 +86,15 @@ def train_sf_ddpg(
         device=device
     )
 
-    tasks = [
-        {"name": "Task 1 (Forward)", "w": w_forward},
-        {"name": "Task 2 (Backward)", "w": w_backward}
-    ]
+    if backward_only:
+        tasks = [
+            {"name": "Task 2 (Backward) from Scratch", "w": w_backward}
+        ]
+    else:
+        tasks = [
+            {"name": "Task 1 (Forward)", "w": w_forward},
+            {"name": "Task 2 (Backward)", "w": w_backward}
+        ]
 
     returns_history = []
 
@@ -352,7 +358,8 @@ def train_ddpg(
     env_name="HalfCheetah-v5",
     steps_per_phase=50000,
     batch_size=64,
-     seed=42  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
+    seed=42,  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
+    backward_only=False
 ):
 
     env = gym.make(env_name)
@@ -404,10 +411,15 @@ def train_ddpg(
         device=device
     )
 
-    tasks = [
-        {"name": "Task 1 (Forward)", "w": w_forward},
-        {"name": "Task 2 (Backward)", "w": w_backward}
-    ]
+    if backward_only:
+        tasks = [
+            {"name": "Task 2 (Backward) from Scratch", "w": w_backward}
+        ]
+    else:
+        tasks = [
+            {"name": "Task 1 (Forward)", "w": w_forward},
+            {"name": "Task 2 (Backward)", "w": w_backward}
+        ]
 
     returns_history = []
 
@@ -660,6 +672,7 @@ def parse_arg():
     parser.add_argument("--baseline", action= "store_true", help="If True, runs also DDPG baseline after SF-DDPG, for comparison.")
     parser.add_argument("--run_name", type=str, default="default_run", help="A name for this run, used to save results and plots with unique identifiers.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--backward_only", action="store_true", help="Train ONLY Task 2 from scratch")
     args = parser.parse_args()
     return args
 # ---------------------------------------------------------
@@ -684,7 +697,8 @@ if __name__ == "__main__":
         steps_per_phase=args.steps_per_phase,
         lambda_q = args.lambda_q,
         lambda_vec = args.lambda_vec,
-        seed=args.seed  # Pass the seed to the training function to ensure reproducibility of environment interactions
+        seed=args.seed,  # Pass the seed to the training function to ensure reproducibility of environment interactions
+        backward_only=args.backward_only
     )
     #plot_results(SFreturns, "SF-DDPG Sequential Training Adaptation (HalfCheetah)", run_dir / "sf_ddpg_results.pdf")
     with open(run_dir / "sf_ddpg_returns.json", "w") as f:
@@ -702,7 +716,8 @@ if __name__ == "__main__":
         Qreturns = train_ddpg(
             run_dir=run_dir,
             steps_per_phase=args.steps_per_phase,
-            seed=args.seed  # Pass the seed to the training function to ensure reproducibility of environment interactions
+            seed=args.seed,  # Pass the seed to the training function to ensure reproducibility of environment interactions
+            backward_only=args.backward_only
         )
         #plot_results(Qreturns, "Standard DDPG Sequential Training Adaptation (HalfCheetah)" , run_dir / "ddpg_results.pdf")
         with open(run_dir / "ddpg_returns.json", "w") as f:
