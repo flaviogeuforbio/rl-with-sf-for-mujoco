@@ -27,11 +27,21 @@ def smooth_and_pad(data_list, window=20):
 
 def plot_curve(ax, data, label, color, linestyle='-'):
     if data.size == 0: return
+    
+    n_seeds = data.shape[0]
     mean = np.mean(data, axis=0)
     std = np.std(data, axis=0)
+    
+    # Calculate Standard Error of the Mean (SEM)
+    sem = std / np.sqrt(n_seeds)
+    
+    # Optional: For a 95% Confidence Interval, uncomment the next line
+    # margin = 1.96 * sem 
+    margin = sem # Using 1 Standard Error
+    
     x = np.arange(len(mean))
     ax.plot(x, mean, label=label, color=color, linestyle=linestyle)
-    ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.15)
+    ax.fill_between(x, mean - margin, mean + margin, color=color, alpha=0.15)
 
 def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     """Generates the comparison plot and returns the Matplotlib figure and axes objects."""
