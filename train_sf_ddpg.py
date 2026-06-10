@@ -33,6 +33,7 @@ def train_sf_ddpg(
     lambda_q=1.0,
     lambda_vec=0.05,
     seed=42,  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
+    gamma=0.99,  # Discount factor for future rewards/features
     backward_only=False
 ):
 
@@ -286,7 +287,8 @@ def train_sf_ddpg(
                     batch_term,
                     critic_optimizer,
                     lambda_q = lambda_q, 
-                    lambda_vec = lambda_vec
+                    lambda_vec = lambda_vec,
+                    gamma = gamma
 
                 )
                 # At first, we train the critic to have meaningful successor features predictions, then we train the Actor
@@ -359,6 +361,7 @@ def train_ddpg(
     steps_per_phase=50000,
     batch_size=64,
     seed=42,  # Default seed value for reproducibility if not provided via command line (Homage to Douglas Adams' "Answer to the Ultimate Question of Life, The Universe, and Everything")
+    gamma=0.99,  # Discount factor for future rewards/features
     backward_only=False
 ):
 
@@ -605,7 +608,8 @@ def train_ddpg(
                     w_current, # we need to pass also the current task weights to compute the TD target for the Q critic
                     batch_next_states,
                     batch_term,
-                    critic_optimizer
+                    critic_optimizer,
+                    gamma = gamma
                 )
                 # At first, we train the critic to have meaningful successor features predictions, then we train the Actor
                 # ---------------------------------------------------------
@@ -672,6 +676,7 @@ def parse_arg():
     parser.add_argument("--baseline", action= "store_true", help="If True, runs also DDPG baseline after SF-DDPG, for comparison.")
     parser.add_argument("--run_name", type=str, default="default_run", help="A name for this run, used to save results and plots with unique identifiers.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor for future rewards/features")
     parser.add_argument("--backward_only", action="store_true", help="Train ONLY Task 2 from scratch")
     args = parser.parse_args()
     return args
@@ -698,6 +703,7 @@ if __name__ == "__main__":
         lambda_q = args.lambda_q,
         lambda_vec = args.lambda_vec,
         seed=args.seed,  # Pass the seed to the training function to ensure reproducibility of environment interactions
+        gamma=args.gamma,
         backward_only=args.backward_only
     )
     #plot_results(SFreturns, "SF-DDPG Sequential Training Adaptation (HalfCheetah)", run_dir / "sf_ddpg_results.pdf")
@@ -717,6 +723,7 @@ if __name__ == "__main__":
             run_dir=run_dir,
             steps_per_phase=args.steps_per_phase,
             seed=args.seed,  # Pass the seed to the training function to ensure reproducibility of environment interactions
+            gamma=args.gamma,
             backward_only=args.backward_only
         )
         #plot_results(Qreturns, "Standard DDPG Sequential Training Adaptation (HalfCheetah)" , run_dir / "ddpg_results.pdf")
