@@ -605,28 +605,29 @@ def print_results(results):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--run_name", type=str, required=True)
+    parser.add_argument("--run_name", type=str, required=True, help="Name of the run directory containing the saved models.")
     parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
-    parser.add_argument("--phase", type=int, default=0)
-    parser.add_argument("--episodes", type=int, default=5)
-    parser.add_argument("--max_episode_steps", type=int, default=1000)
-    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--phase", type=int, default=0, help="0 for Task 1, 1 for Task 2")
+    parser.add_argument("--episodes", type=int, default=5, help="Number of diagnostic episodes to collect.")
+    parser.add_argument("--max_episode_steps", type=int, default=1000, help="Maximum steps per diagnostic episode.")
+    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor for computing feature returns.")
 
     parser.add_argument(
         "--policy_mode",
         type=str,
         choices=["actor_only", "sf_action_optimization"],
         default="actor_only",
-    )
+     help="Whether to use the actor's actions or optimize actions with the SF critic for diagnostics.")
     parser.add_argument(
         "--eval_task",
         type=str,
         choices=["forward", "backward"],
         default="backward",
+        help="Whether to evaluate on the forward or backward task for diagnostics.",
     )
-    parser.add_argument("--opt_steps", type=int, default=250)
-    parser.add_argument("--opt_step_size", type=float, default=0.2)
-    parser.add_argument("--action_l2", type=float, default=1e-3)
+    parser.add_argument("--opt_steps", type=int, default=250, help="Number of optimization steps for sf_action_optimization mode.")
+    parser.add_argument("--opt_step_size", type=float, default=0.2, help="Step size for optimization in sf_action_optimization mode.")
+    parser.add_argument("--action_l2", type=float, default=1e-3, help="L2 regularization strength for actions.")
 
     parser.add_argument("--output_name", type=str, default=None)
 
