@@ -615,7 +615,7 @@ def main():
     parser.add_argument(
         "--policy_mode",
         type=str,
-        choices=["actor_only", "sf_action_optimization"],
+        choices=["actor_only", "sf_action_optimization"], # for gamma ablation we need only sf_action_optimization
         default="actor_only",
      help="Whether to use the actor's actions or optimize actions with the SF critic for diagnostics.")
     parser.add_argument(

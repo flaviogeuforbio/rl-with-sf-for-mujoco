@@ -14,7 +14,7 @@ def main():
 
     # Loop over seeds 1 to 10
     for i in range(1, 11):
-        run_name = f"eval_gamma_{gamma_str}/seed_{i}"
+        run_name = f"eval_gamma_{gamma_str}/seed_{i}" # TODO CHANGE NAME APPROPRIATELY
         
         # Check if the directory exists using os.path.join for cross-platform safety
         dir_path = os.path.join("artifacts", run_name)
