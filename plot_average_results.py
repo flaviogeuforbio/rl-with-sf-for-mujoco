@@ -123,8 +123,16 @@ def generate_gamma_ablation_plot(run_dir, gamma_label, window_size=20):
     return fig, axes
 
 if __name__ == "__main__":
-    SEQ_DIR = os.path.join("artifacts", "final_eval")
-    SCRATCH_DIR = os.path.join("artifacts", "final_eval_backward_only")
+    LAMBDA_Q = "0.2"
+    LAMBDA_VEC = "1.0"
+    STEPS_PER_PHASE = "50000"
+
+    # SEQ_DIR = os.path.join("artifacts", "final_eval")
+    # SCRATCH_DIR = os.path.join("artifacts", "final_eval_backward_only")
+
+    SEQ_DIR = os.path.join("artifacts", "transfer_learning", "eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning")
+    SCRATCH_DIR = os.path.join("artifacts", "transfer_learning", "eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_backward_only")
+    
     ROOT_DIR = "artifacts" # for saving the plots
 
     # Create the figures directory
@@ -148,18 +156,18 @@ if __name__ == "__main__":
     # Save gamma ablation plot
 
     # List of gamma values to loop through
-    gamma_values = ["0.0", "0.1" , "0.3", "0.5", "0.7", "0.8"]
+    gamma_values = ["0.1", "0.2" , "0.3", "0.5", "0.7", "0.8"]
 
     for gamma in gamma_values:
         # 1. Format the folder name (e.g., "0.5" becomes "eval_gamma_0_5")
-        folder_name = f"eval_gamma_{gamma.replace('.', '_')}"
+        folder_name = f"eval_gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{STEPS_PER_PHASE}" 
         run_dir = os.path.join("artifacts", folder_name)
         
         # 2. Generate the plot
         fig, axes = generate_gamma_ablation_plot(run_dir, gamma)
 
         # 3. Format the save path (e.g., "0.5" becomes "gamma_0_5.pdf")
-        pdf_filename = f"gamma_{gamma.replace('.', '_')}.pdf"
+        pdf_filename = f"gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{STEPS_PER_PHASE}.pdf"
         save_path = os.path.join(gamma_folder, pdf_filename)
         
         # 4. Save and clear the figure from memory
