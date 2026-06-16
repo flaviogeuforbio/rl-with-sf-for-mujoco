@@ -730,7 +730,13 @@ if __name__ == "__main__":
     # print(SFreturns)
     # print(f"N. episodes for each task: {len(SFreturns[0])}, {len(SFreturns[1])}")
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    if getattr(args, "baseline", False):    
+    if getattr(args, "baseline", False):  
+
+        #############################
+        # MODIFICA 2
+        set_seed(args.seed)
+        #############################
+
         print("="*50)
         print("Training DDPG...")  
         print("="*50)
