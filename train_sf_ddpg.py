@@ -39,6 +39,15 @@ def train_sf_ddpg(
 
     env = gym.make(env_name)
 
+    #################################################
+    #MODIFICA 1
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
+    #################################################
+
+
+
+
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
@@ -366,6 +375,12 @@ def train_ddpg(
 ):
 
     env = gym.make(env_name)
+
+    #################################################
+    #MODIFICA 1
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
+    #################################################
 
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
