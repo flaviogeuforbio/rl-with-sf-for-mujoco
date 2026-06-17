@@ -1,3 +1,4 @@
+
 import os
 import subprocess
 import argparse
@@ -6,12 +7,15 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description="Run PSI diagnostics across all seeds for a given gamma.")
     parser.add_argument("gamma", type=str, help="The gamma value to process (e.g., 0.5)")
+    parser.add_argument("phase", type=str, help="The phase value to process (default: 0)")
     args = parser.parse_args()
 
     gamma = args.gamma
     gamma_str = gamma.replace(".", "_")
+    phase = args.phase
+    phase_str = phase.replace(".", "_")
     
-    print(f"Starting PSI diagnostics for Gamma = {gamma}...")
+    print(f"Starting PSI diagnostics for Gamma = {gamma}, Phase = {phase}...")
 
     # Loop over seeds 1 to 10
     for i in range(1, 11):
@@ -27,7 +31,7 @@ def main():
             command = [
                 sys.executable, "diagnose_psi.py",
                 "--run_name", run_name,
-                "--phase", "0",
+                "--phase", phase,
                 "--gamma", gamma
             ]
             
