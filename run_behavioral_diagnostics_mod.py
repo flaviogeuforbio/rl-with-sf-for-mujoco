@@ -5,11 +5,12 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(description="Run behavioral diagnostics.")
-    parser.add_argument("gamma", type=str, help="Gamma value (e.g., 0.99)")
-    parser.add_argument("mode", type=str, default="sf_action_optimization", help="Mode value (default: sf_action_optimization)")
+    parser.add_argument("--gamma", type=str, help="Gamma value (e.g., 0.99)")
+    parser.add_argument("--mode", type=str, default="sf_action_optimization", help="Mode value (default: sf_action_optimization)")
     parser.add_argument("model_type", type=str, default="sf", help="Model type (default: sf)")
     parser.add_argument("phase", type=str, help="Phase value (e.g., 0)")
     parser.add_argument("task", type=str, default="backward", help="Task value (default: backward)")
+
 
     args = parser.parse_args()
 
@@ -28,27 +29,31 @@ def main():
 
     #for i in range(1, 11):
     #for i in range(1, 2):
-    for i in range(2,6):
-        run_name = f"transfer_learning/eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
+    for i in range(2,3):
+        run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
         dir_path = os.path.join("artifacts", run_name)
         
         if os.path.isdir(dir_path):
             print(f"\n---> Processing Seed {i} ({run_name})")
             
-            # 1. Feature Scales (Zero-shot transfer to backward task)
+            # 1. Feature Scales (Zero-shot transfer to backward task) 
             subprocess.run([
                 sys.executable, "diagnose_feature_scales.py",
                 "--run_name", run_name,
+                "--gamma", gamma,
+                "--mode", mode,
                 "--model_type", model_type,
                 "--phase", phase,
-                "--task", task
+                "--task", task,
             ])
             
             # 2. Rollout Dynamics (Zero-shot transfer to backward task)
             subprocess.run([
                 sys.executable, "diagnose_rollout_dynamics.py",
                 "--run_name", run_name,
+                "--gamma", gamma,
                 "--mode", mode,
+                "--model_type", model_type,
                 "--phase", phase,
                 "--task", task,
                 "--render",
@@ -60,3 +65,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+#comando
+# python .\run_behavioral_diagnostics_mod.py --gamma 0.99 --mode sf_action_optimization sf 0 backward

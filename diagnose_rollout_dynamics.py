@@ -15,6 +15,47 @@ from ActorCritic import Actor, SFCritic, QCritic
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+###########################################
+#modifica
+def sanitize_folder_value(value):
+    return (
+        str(value)
+        .strip()
+        .replace(".", "_")
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("\\", "_")
+    )
+
+
+def build_diagnostics_dir(
+    run_dir,
+    gamma,
+    phase,
+    mode,
+    model_type,
+    task,
+):
+    gamma_name = sanitize_folder_value(gamma)
+    mode_name = sanitize_folder_value(mode)
+    model_name = sanitize_folder_value(model_type)
+    task_name = sanitize_folder_value(task)
+
+    folder_name = (
+        f"gamma_{gamma_name}"
+        f"__phase_{phase}"
+        f"__mode_{mode_name}"
+        f"__model_{model_name}"
+        f"__task_{task_name}"
+    )
+
+    diagnostics_dir = run_dir / "diagnostics" / folder_name
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    return diagnostics_dir
+
+#############################################################
+
 
 def make_task_weights(device):
     """Create the forward and backward task vectors used in training."""
@@ -778,6 +819,27 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--run_name", type=str, required=True)
+
+    #################################################
+    #modifica
+
+    parser.add_argument(
+    "--gamma",
+    type=str,
+    required=True,
+    help="Gamma associato alla run.",
+)
+
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        choices=["sf", "ddpg"],
+        required=True,
+        help="Tipo di modello usato dalla diagnostica.",
+    )
+
+    ################################################
+
     parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
     parser.add_argument(
         "--mode",
@@ -817,7 +879,39 @@ def main():
 
     args = parser.parse_args()
 
+    ###################################################
+    #modifica
+
+    expected_model_type = (
+        "sf"
+        if args.mode.startswith("sf_")
+        else "ddpg"
+    )
+
+    if args.model_type != expected_model_type:
+        parser.error(
+            f"La modalità '{args.mode}' richiede "
+            f"--model_type {expected_model_type}, "
+            f"non '{args.model_type}'."
+        )
+
+    ####################################################
+
     run_dir = Path("artifacts") / args.run_name
+
+    ##################################################
+    #modifica
+
+    diagnostics_dir = build_diagnostics_dir(
+        run_dir=run_dir,
+        gamma=args.gamma,
+        phase=args.phase,
+        mode=args.mode,
+        model_type=args.model_type,
+        task=args.task,
+    )
+
+    ####################################################
 
     w_forward, w_backward = make_task_weights(device)
     task_weights = w_forward if args.task == "forward" else w_backward
@@ -836,21 +930,35 @@ def main():
         q_critic=q_critic,
     )
 
+    # if args.output_name is None:
+    #     suffix = "timeseries" if (args.save_timeseries or args.render) else "summary"
+    #     output_name = (
+    #         f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_{suffix}.json"
+    #     )
+    # else:
+    #     output_name = args.output_name
+
+    # output_path = run_dir / output_name
+
     if args.output_name is None:
-        suffix = "timeseries" if (args.save_timeseries or args.render) else "summary"
-        output_name = (
-            f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_{suffix}.json"
+        suffix = (
+            "timeseries"
+            if (args.save_timeseries or args.render)
+            else "summary"
         )
+        output_name = f"rollout_dynamics_{suffix}.json"
     else:
         output_name = args.output_name
 
-    output_path = run_dir / output_name
+    output_path = diagnostics_dir / output_name
 
     render_path = None
     if args.render:
-        render_path = run_dir / (
-            f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_episode_{args.timeseries_episode}.mp4"
-        )
+        # render_path = run_dir / (
+        #     f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_episode_{args.timeseries_episode}.mp4"
+        # )
+
+        render_path = diagnostics_dir / (f"rollout_dynamics_episode_{args.timeseries_episode}.mp4")
 
     # If rendering, save the matching timeseries automatically.
     save_timeseries = args.save_timeseries or args.render
@@ -877,6 +985,18 @@ def main():
 
     print_summary(results, args.mode)
 
+    ###########################
+    #modifica
+
+    results["gamma"] = float(args.gamma)
+    results["phase"] = int(args.phase)
+    results["mode"] = args.mode
+    results["model_type"] = args.model_type
+    results["task"] = args.task
+    results["run_name"] = args.run_name
+
+    #################################
+
     with open(output_path, "w") as f:
         json.dump(results, f, indent=4)
 
@@ -885,3 +1005,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

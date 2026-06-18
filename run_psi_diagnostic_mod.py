@@ -7,8 +7,15 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description="Run PSI diagnostics across all seeds for a given gamma.")
     parser.add_argument("gamma", type=str, help="The gamma value to process (e.g., 0.5)")
-    parser.add_argument("phase", type=str, help="The phase value to process (default: 0)")
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        choices=["sf"],
+        default="sf",
+        help="PSI diagnostics supporta solamente SF.",
+    )
     parser.add_argument("mode", type=str, default="sf_action_optimization", help="The mode value to process (default: sf_action_optimization)")
+    parser.add_argument("phase", type=str, help="The phase value to process (default: 0)")
     parser.add_argument("task", type=str, default="backward", help="The task value to process (default: backward)")
 
 
@@ -16,10 +23,12 @@ def main():
 
     gamma = args.gamma
     gamma_str = gamma.replace(".", "_")
-    phase = args.phase
-    phase_str = phase.replace(".", "_")
+    model_type = args.model_type
+    model_type_str = model_type.replace(".", "_")
     mode = args.mode
     mode_str = mode.replace(".", "_")
+    phase = args.phase
+    phase_str = phase.replace(".", "_")
     task = args.task
     task_str = task.replace(".", "_")
 
@@ -28,9 +37,8 @@ def main():
 
     # Loop over seeds 1 to 10
     #for i in range(1, 11):
-    #for i in range(1, 2):
-    for i in range(2,6):
-        run_name = f"transfer_learning/eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
+    for i in range(2, 3):
+        run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
         
         # Check if the directory exists using os.path.join for cross-platform safety
         dir_path = os.path.join("artifacts", run_name)
@@ -42,15 +50,16 @@ def main():
             command = [
                 sys.executable, "diagnose_psi.py",
                 "--run_name", run_name,
-                "--phase", phase,
                 "--gamma", gamma,
+                "--model_type", model_type,
                 "--policy_mode", mode,
+                "--phase", phase,
                 "--eval_task", task,
             ]
             
             
             # Run the command
-            subprocess.run(command)
+            subprocess.run(command, check=True)
         else:
             print(f"\n---> Skipping Seed {i}: Folder {dir_path} not found.")
 
@@ -58,3 +67,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#comando
+# python .\run_psi_diagnostic_mod.py 0.99 --model_type sf sf_action_optimization 0 backward

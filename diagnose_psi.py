@@ -11,6 +11,47 @@ from ActorCritic import Actor, SFCritic
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+######################################
+#modifica
+
+def sanitize_folder_value(value):
+    return (
+        str(value)
+        .strip()
+        .replace(".", "_")
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("\\", "_")
+    )
+
+
+def build_diagnostics_dir(
+    run_dir,
+    gamma,
+    phase,
+    mode,
+    model_type,
+    task,
+):
+    gamma_name = sanitize_folder_value(gamma)
+    mode_name = sanitize_folder_value(mode)
+    model_name = sanitize_folder_value(model_type)
+    task_name = sanitize_folder_value(task)
+
+    folder_name = (
+        f"gamma_{gamma_name}"
+        f"__phase_{phase}"
+        f"__mode_{mode_name}"
+        f"__model_{model_name}"
+        f"__task_{task_name}"
+    )
+
+    diagnostics_dir = run_dir / "diagnostics" / folder_name
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    return diagnostics_dir
+#################################################################
+
 
 def pearson_corr(x, y):
     """Compute Pearson correlation without scipy."""
@@ -631,9 +672,47 @@ def main():
 
     parser.add_argument("--output_name", type=str, default=None)
 
+    ########################################################
+    #modifica 
+
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        choices=["sf"],
+        default="sf",
+        help="La diagnostica PSI è disponibile solamente per SF.",
+    )
+
+    ###################################################
+
     args = parser.parse_args()
 
+    ##################################
+    #modifica
+
+    folder_mode = ( #dato che diagnose_psi.py usa actor_only e sf_action_optimization mentre diagnose_rollout_dynamics.py usa sf_actor_only e sf_action_optimization
+                    #per fare in modo che la cartella actor-only abbia lo stesso nome nei due script
+        "sf_actor_only"
+        if args.policy_mode == "actor_only"
+        else args.policy_mode
+    )
+
+    ###################################
+
     run_dir = Path("artifacts") / args.run_name
+
+    ############################################
+    #modifica
+    diagnostics_dir = build_diagnostics_dir(
+        run_dir=run_dir,
+        gamma=args.gamma,
+        phase=args.phase,
+        mode=folder_mode,
+        model_type=args.model_type,
+        task=args.eval_task,
+    )
+
+    #####################################
 
     results = analyze_psi(
         run_dir=run_dir,
@@ -651,13 +730,33 @@ def main():
 
     print_results(results)
 
+    ################################
+    #mofica
+
+    results["gamma"] = float(args.gamma)
+    results["phase"] = int(args.phase)
+    results["mode"] = folder_mode
+    results["policy_mode"] = args.policy_mode
+    results["model_type"] = args.model_type
+    results["task"] = args.eval_task
+    results["run_name"] = args.run_name
+
+    ####################################
+
+    # if args.output_name is None:
+    #     output_path = (
+    #         run_dir
+    #         / f"psi_diagnostics_phase_{args.phase}_{args.policy_mode}_{args.eval_task}.json"
+    #     )
+    # else:
+    #     output_path = run_dir / args.output_name
+
     if args.output_name is None:
-        output_path = (
-            run_dir
-            / f"psi_diagnostics_phase_{args.phase}_{args.policy_mode}_{args.eval_task}.json"
-        )
+        output_name = "psi_diagnostics.json"
     else:
-        output_path = run_dir / args.output_name
+        output_name = args.output_name
+
+    output_path = diagnostics_dir / output_name
 
     with open(output_path, "w") as f:
         json.dump(results, f, indent=4)

@@ -243,6 +243,24 @@ def main():
     parser.add_argument("--max_episode_steps", type=int, default=1000)
     parser.add_argument("--output_name", type=str, default=None)
 
+    ######################################
+    #modifica
+    parser.add_argument(
+    "--gamma",
+    type=str,
+    required=True,
+    help="Gamma associato alla run.",
+)
+
+    parser.add_argument(
+        "--mode",
+        type=str,
+        required=True,
+        help="Modalità associata alla diagnostica.",
+    )
+
+    ######################################
+
     args = parser.parse_args()
 
     run_dir = Path("artifacts") / args.run_name
@@ -266,12 +284,49 @@ def main():
 
     print_summary(summary)
 
+    ############################################
+    #modifica
+
+    def sanitize_folder_value(value):
+        return (
+            str(value)
+            .strip()
+            .replace(".", "_")
+            .replace(" ", "_")
+            .replace("/", "_")
+            .replace("\\", "_")
+        )
+    
+    gamma_name = sanitize_folder_value(args.gamma)
+    mode_name = sanitize_folder_value(args.mode)
+    model_name = sanitize_folder_value(args.model_type)
+    task_name = sanitize_folder_value(args.task)
+
+    diagnostic_folder_name = (
+        f"gamma_{gamma_name}"
+        f"__phase_{args.phase}"
+        f"__mode_{mode_name}"
+        f"__model_{model_name}"
+        f"__task_{task_name}"
+    )
+
+    diagnostics_dir = run_dir / "diagnostics" / diagnostic_folder_name
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
     if args.output_name is None:
-        output_name = f"feature_scale_diagnostics_{args.model_type}_phase_{args.phase}_{args.task}.json"
+        output_name = "feature_scale_diagnostics.json"
     else:
         output_name = args.output_name
 
-    output_path = run_dir / output_name
+    summary["gamma"] = float(args.gamma)
+    summary["phase"] = int(args.phase)
+    summary["mode"] = args.mode
+    summary["model_type"] = args.model_type
+    summary["task"] = args.task
+    summary["run_name"] = args.run_name
+
+    output_path = diagnostics_dir / output_name
+    
 
     with open(output_path, "w") as f:
         json.dump(summary, f, indent=4)
