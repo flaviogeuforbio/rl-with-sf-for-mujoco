@@ -27,24 +27,25 @@ def main():
 
     print(f"Starting behavioral diagnostics for Gamma = {gamma}, Mode = {mode}, Model Type = {model_type}, Phase = {phase}, Task = {task}...")
 
-    for i in range(1, 6):
+    for i in range(1, 2):
 
-        run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
+        # run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
+        run_name = f"eval_gamma_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000/seed_{i}"
         dir_path = os.path.join("artifacts", run_name)
         
         if os.path.isdir(dir_path):
             print(f"\n---> Processing Seed {i} ({run_name})")
             
             # 1. Feature Scales (Zero-shot transfer to backward task) 
-            subprocess.run([
-                sys.executable, "diagnose_feature_scales.py",
-                "--run_name", run_name,
-                "--gamma", gamma,
-                "--mode", mode,
-                "--model_type", model_type,
-                "--phase", phase,
-                "--task", task,
-            ])
+            # subprocess.run([
+            #     sys.executable, "diagnose_feature_scales.py",
+            #     "--run_name", run_name,
+            #     "--gamma", gamma,
+            #     "--mode", mode,
+            #     "--model_type", model_type,
+            #     "--phase", phase,
+            #     "--task", task,
+            # ])
             
             # 2. Rollout Dynamics (Zero-shot transfer to backward task)
             subprocess.run([
