@@ -6,9 +6,10 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description="Run behavioral diagnostics.")
     parser.add_argument("gamma", type=str, help="Gamma value (e.g., 0.99)")
+    parser.add_argument("mode", type=str, default="sf_action_optimization", help="Mode value (default: sf_action_optimization)")
+    parser.add_argument("model_type", type=str, default="sf", help="Model type (default: sf)")
     parser.add_argument("phase", type=str, help="Phase value (e.g., 0)")
     parser.add_argument("task", type=str, default="backward", help="Task value (default: backward)")
-    parser.add_argument("mode", type=str, default="sf_action_optimization", help="Mode value (default: sf_action_optimization)")
 
     args = parser.parse_args()
 
@@ -20,10 +21,14 @@ def main():
     task_str = task.replace(".", "_")
     mode = args.mode
     mode_str = mode.replace(".", "_")
+    model_type = args.model_type 
+    model_type_str = model_type.replace(".", "_")
 
-    print(f"Starting behavioral diagnostics for Gamma = {gamma}, Phase = {phase}, Task = {task}, Mode = {mode}...")
+    print(f"Starting behavioral diagnostics for Gamma = {gamma}, Mode = {mode}, Model Type = {model_type}, Phase = {phase}, Task = {task}...")
 
-    for i in range(1, 2):
+    #for i in range(1, 11):
+    #for i in range(1, 2):
+    for i in range(2,6):
         run_name = f"transfer_learning/eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
         dir_path = os.path.join("artifacts", run_name)
         
@@ -34,7 +39,7 @@ def main():
             subprocess.run([
                 sys.executable, "diagnose_feature_scales.py",
                 "--run_name", run_name,
-                "--model_type", "sf",
+                "--model_type", model_type,
                 "--phase", phase,
                 "--task", task
             ])
@@ -46,8 +51,8 @@ def main():
                 "--mode", mode,
                 "--phase", phase,
                 "--task", task,
-                # "--render",
-                # "--save_timeseries",
+                "--render",
+                "--save_timeseries",
 
             ])
         else:

@@ -12,7 +12,9 @@ def main():
     print(f"Starting behavioral diagnostics for Gamma = {args.gamma}...")
 
     for i in range(1, 11):
-        run_name = f"eval_gamma_{gamma_str}/seed_{i}" # TODO CHANGE NAME APPROPRIATELY
+        run_name1 = f"eval_gamma_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000" # TODO CHANGE NAME APPROPRIATELY
+        run_name2 = f"seed_{i}" # TODO CHANGE NAME APPROPRIATELY
+        run_name = os.path.join(run_name1, run_name2)
         dir_path = os.path.join("artifacts", run_name)
         
         if os.path.isdir(dir_path):
