@@ -36,8 +36,8 @@ def main():
     print(f"Starting PSI diagnostics for Gamma = {gamma}, Phase = {phase}, Mode = {mode}, Task = {task}...")
 
     # Loop over seeds 1 to 10
-    #for i in range(1, 11):
-    for i in range(2, 3):
+    for i in range(1, 6):
+
         run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
         
         # Check if the directory exists using os.path.join for cross-platform safety
