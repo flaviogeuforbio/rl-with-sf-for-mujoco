@@ -42,7 +42,7 @@ class SFCritic(nn.Module):
         return self.l3(q)
 
 # ---------------------------------------------------------
-# 3. Actor Training Logic (The derivative "trick")
+# 3. Actor Training Logic (The derivative)
 # ---------------------------------------------------------
 def SFtrain_actor(actor, sf_critic, task_weights, state_batch, actor_optimizer):
     """
