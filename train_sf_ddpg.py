@@ -40,7 +40,6 @@ def train_sf_ddpg(
     env = gym.make(env_name)
 
     #################################################
-    #MODIFICA 1
     env.action_space.seed(seed)
     env.observation_space.seed(seed)
     #################################################
@@ -91,7 +90,6 @@ def train_sf_ddpg(
         print(f"--- Starting Phase {phase} ---")
 
         # Initialize w as a learnable PyTorch parameter for the new phase
-        # Initialize w as a learnable PyTorch parameter.
         # We use small random values instead of standard normal (randn) 
         # to prevent massive initial Q-value spikes before regression converges.
         w_param = torch.nn.Parameter(
@@ -119,7 +117,7 @@ def train_sf_ddpg(
             # 1. Select Action (with exploration noise)
             # ---------------------------------------------------------
             if len(replay_buffer.storage) < WARMUP_STEPS:
-                action = env.action_space.sample()
+                action = env.action_space.sample() # take random actions for exploration during warmup
             else:
                 state_tensor = torch.tensor(
                     state,
@@ -155,9 +153,9 @@ def train_sf_ddpg(
 
             # Ground truth scalar reward provided by the environment
             if phase == 0:
-                true_reward = pos_fwd_vel + ctrl_reward
+                true_reward = pos_fwd_vel + ctrl_reward # forward task: maximize forward velocity and control reward
             else:
-                true_reward = pos_bwd_vel + ctrl_reward
+                true_reward = pos_bwd_vel + ctrl_reward # backward task: maximize backward velocity and control reward
 
             episode_return += true_reward
 
@@ -186,12 +184,13 @@ def train_sf_ddpg(
                 # ---------------------------------------------------------
                 with torch.no_grad():
                     if phase == 0:
-                        batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3]
+                        batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3] # forward task: maximize forward velocity and control reward
                     else:
-                        batch_true_rewards = batch_phis[:, 1:2] + batch_phis[:, 2:3]
+                        batch_true_rewards = batch_phis[:, 1:2] + batch_phis[:, 2:3] # backward task: maximize backward velocity and control reward
 
                 # predicted reward = phi^T w
                 predicted_rewards = torch.matmul(batch_phis, w_param)
+                # MSE loss between predicted rewards and true rewards
                 w_loss = F.mse_loss(predicted_rewards, batch_true_rewards)
 
                 w_optimizer.zero_grad()
