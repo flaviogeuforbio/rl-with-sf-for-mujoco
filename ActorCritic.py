@@ -158,10 +158,10 @@ class QCritic(nn.Module):
 # ---------------------------------------------------------
 # 3. Actor Training Logic (The derivative "trick")
 # ---------------------------------------------------------
-def Qtrain_actor(actor, q_critic, task_weights, state_batch, actor_optimizer):
+def Qtrain_actor(actor, q_critic, state_batch, actor_optimizer):
     """
     actor_optimizer: Optimizer (e.g., Adam) for the Actor network
-    task_weights: The 'w' vector defining the current task (shape: [feature_dim, 1])
+    here we don't need task_weights because the critic directly outputs a scalar Q-value that already incorporates the task weights internally.
     state_batch: Batch of states sampled from the replay buffer
     """
     actor_optimizer.zero_grad()
