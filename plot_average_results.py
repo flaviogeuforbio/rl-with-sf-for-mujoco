@@ -127,8 +127,12 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Generate learning curve plots.")
-    parser.add_argument("--transfer_dir", type=str, default="transfer_learning", help="Subfolder in artifacts containing the transfer runs (e.g., transfer_learning_long_run)")
+    parser.add_argument("--transfer_dir", type=str, default="transfer_learning", help="Subfolder in artifacts containing the transfer runs")
     parser.add_argument("--steps", type=str, default="50000", help="Number of steps per phase used in the folder names")
+    parser.add_argument("--lambda_q", type=str, default="0.2", help="Q-loss weight used in the run")
+    parser.add_argument("--lambda_vec", type=str, default="1.0", help="Vec-loss weight used in the run")
+    parser.add_argument("--gamma", type=str, default="0.99", help="Gamma discount factor used in the transfer learning run")
+    parser.add_argument("--prefix", type=str, default="3DFeatures", help="Prefix of the folder name (e.g., eval or 3DFeatures)")
     parser.add_argument("--plot_transfer", action="store_true", help="Generate the transfer learning comparison plot")
     parser.add_argument("--plot_gamma", action="store_true", help="Generate the gamma sweep plots")
     parser.add_argument("--plot_all", action="store_true", help="Generate all plots")
@@ -142,29 +146,32 @@ if __name__ == "__main__":
         print("Error: Specify at least one plot to generate using --plot_transfer, --plot_gamma, or --plot_all")
         exit(1)
 
-    LAMBDA_Q = "0.2"
-    LAMBDA_VEC = "1.0"
     ROOT_DIR = "artifacts"
+    
+    # Format the parameters to match the folder naming convention (replace . with _)
+    lq_str = args.lambda_q.replace('.', '_')
+    lvec_str = args.lambda_vec.replace('.', '_')
+    gamma_str = args.gamma.replace('.', '_')
 
     # Create the figures directory
     figures_dir = os.path.join(ROOT_DIR, "figures")
     os.makedirs(figures_dir, exist_ok=True)
 
     if args.plot_transfer:
-        # TODO : Find a way to dynamically set the folder names in an appropriate way based on the command line arguments or configuration files. For now, I will hardcode them.
-        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"3DFeatures_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
-        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"3DFeatures_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
+        # Dynamically build the directory strings using the gamma argument
+        base_name_seq = f"{args.prefix}_transfer_gamma_{gamma_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}_transfer_learning"
+        base_name_scratch = f"{args.prefix}_transfer_gamma_{gamma_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}_backward_only"
         
-        # SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
-        # SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
+        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, base_name_seq)
+        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, base_name_scratch)
         
-        # Dynamically name the output folder based on the number of steps
-        transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_3DFeatures_gamma_0_99_{args.steps}_steps")
+        # Dynamically name the output folder
+        transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_{args.prefix}_gamma_{gamma_str}_{args.steps}_steps")
         os.makedirs(transfer_comparison_folder, exist_ok=True)
 
         fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, window_size=20)
         
-        save_path = os.path.join(transfer_comparison_folder, f"transfer_3DFeatures_gamma_0.99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}.pdf")
+        save_path = os.path.join(transfer_comparison_folder, f"transfer_{args.prefix}_gamma_{args.gamma}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}.pdf")
         fig.savefig(save_path)
         plt.close(fig)
         print(f"Saved: {save_path}")
@@ -177,12 +184,14 @@ if __name__ == "__main__":
         gamma_values = ["0.1", "0.2" , "0.3", "0.5", "0.7", "0.8"]
 
         for gamma in gamma_values:
-            folder_name = f"eval_gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}" 
-            run_dir = os.path.join(ROOT_DIR, folder_name)
+            g_str = gamma.replace('.', '_')
+            folder_name_1 = "gamma_sweep"  # Base folder name for gamma sweep runs
+            folder_name_2 = f"{args.prefix}_gamma_{g_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}" 
+            run_dir = os.path.join(ROOT_DIR, folder_name_1, folder_name_2)
             
             fig, axes = generate_gamma_sweep_plot(run_dir, gamma)
 
-            pdf_filename = f"gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}.pdf"
+            pdf_filename = f"gamma_{g_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}.pdf"
             save_path = os.path.join(gamma_folder, pdf_filename)
             
             fig.savefig(save_path, bbox_inches='tight')
