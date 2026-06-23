@@ -60,7 +60,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     sf_scratch_c = smooth_and_pad(sf_scratch_p0, window_size)
     base_scratch_c = smooth_and_pad(base_scratch_p0, window_size)
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
     plot_curve(axes[0], sf_seq_p0_c, "SF-DDPG", "blue")
     plot_curve(axes[0], base_seq_p0_c, "Standard DDPG", "orange")
@@ -99,7 +99,7 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
     base_p0_c = smooth_and_pad(base_p0, window_size)
     base_p1_c = smooth_and_pad(base_p1, window_size)
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
     # --- Phase 0 (Task 1) ---
     plot_curve(axes[0], sf_p0_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
@@ -151,16 +151,20 @@ if __name__ == "__main__":
     os.makedirs(figures_dir, exist_ok=True)
 
     if args.plot_transfer:
-        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
-        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
+        # TODO : Find a way to dynamically set the folder names in an appropriate way based on the command line arguments or configuration files. For now, I will hardcode them.
+        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"3DFeatures_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
+        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"3DFeatures_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
+        
+        # SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
+        # SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
         
         # Dynamically name the output folder based on the number of steps
-        transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_{args.steps}_steps")
+        transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_3DFeatures_gamma_0_99_{args.steps}_steps")
         os.makedirs(transfer_comparison_folder, exist_ok=True)
 
         fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, window_size=20)
         
-        save_path = os.path.join(transfer_comparison_folder, "transfer.pdf")
+        save_path = os.path.join(transfer_comparison_folder, f"transfer_3DFeatures_gamma_0.99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}.pdf")
         fig.savefig(save_path)
         plt.close(fig)
         print(f"Saved: {save_path}")
