@@ -60,7 +60,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     sf_scratch_c = smooth_and_pad(sf_scratch_p0, window_size)
     base_scratch_c = smooth_and_pad(base_scratch_p0, window_size)
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
     plot_curve(axes[0], sf_seq_p0_c, "SF-DDPG", "blue")
     plot_curve(axes[0], base_seq_p0_c, "Standard DDPG", "orange")
@@ -99,7 +99,7 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
     base_p0_c = smooth_and_pad(base_p0, window_size)
     base_p1_c = smooth_and_pad(base_p1, window_size)
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
     # --- Phase 0 (Task 1) ---
     plot_curve(axes[0], sf_p0_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
