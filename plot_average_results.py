@@ -151,8 +151,9 @@ if __name__ == "__main__":
     os.makedirs(figures_dir, exist_ok=True)
 
     if args.plot_transfer:
-        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
-        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_99_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
+        # TODO dynamically set also gamma to have more flexibility
+        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_3_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
+        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_3_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
         
         # Dynamically name the output folder based on the number of steps
         transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_{args.steps}_steps")
@@ -160,7 +161,7 @@ if __name__ == "__main__":
 
         fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, window_size=20)
         
-        save_path = os.path.join(transfer_comparison_folder, "transfer.pdf")
+        save_path = os.path.join(transfer_comparison_folder, "transfer_gamma_0_3.pdf")
         fig.savefig(save_path)
         plt.close(fig)
         print(f"Saved: {save_path}")
