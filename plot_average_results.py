@@ -43,7 +43,7 @@ def plot_curve(ax, data, label, color, linestyle='-'):
     ax.plot(x, mean, label=label, color=color, linestyle=linestyle) # Plot the mean learning curve for the given label and color
     ax.fill_between(x, mean - margin, mean + margin, color=color, alpha=0.15) # Fill the area between (mean - margin) and (mean + margin) to create a shaded region representing the confidence interval around the mean curve
 
-def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
+def generate_transfer_comparison_plot(seq_dir, scratch_dir, gamma, window_size=20):
     """Generates the comparison plot and returns the Matplotlib figure and axes objects."""
     
     sf_seq_p0, sf_seq_p1 = load_data(seq_dir, "sf_ddpg") # Load Phase 0 and Phase 1 returns for SF-DDPG from the sequential training directory
@@ -64,7 +64,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     
     plot_curve(axes[0], sf_seq_p0_c, "SF-DDPG", "blue")
     plot_curve(axes[0], base_seq_p0_c, "Standard DDPG", "orange")
-    axes[0].set_title("Phase 0: Task 1 (Forward)")
+    axes[0].set_title(f"Task 1 (Forward), $\\gamma$ = {gamma}")
     axes[0].set_xlabel("Episodes")
     axes[0].set_ylabel("Return (Smoothed)")
     axes[0].legend()
@@ -76,7 +76,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     plot_curve(axes[1], sf_scratch_c, "SF-DDPG (From Scratch)", "blue", linestyle='--')
     plot_curve(axes[1], base_scratch_c, "Standard DDPG (From Scratch)", "orange", linestyle='--')
     
-    axes[1].set_title("Phase 1: Task 2 (Backward) - Transfer vs Scratch")
+    axes[1].set_title(f"Task 2 (Backward) - Transfer vs Scratch, $\\gamma$ = {gamma}")
     axes[1].set_xlabel("Episodes")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -104,7 +104,7 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
     # --- Phase 0 (Task 1) ---
     plot_curve(axes[0], sf_p0_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
     plot_curve(axes[0], base_p0_c, f"Baseline DDPG ($\\gamma$ = {gamma_label})", "orange")
-    axes[0].set_title("Phase 0: Task 1 (Forward)")
+    axes[0].set_title("Task 1 (Forward)")
     axes[0].set_xlabel("Episodes")
     axes[0].set_ylabel("Return (Smoothed)")
     axes[0].legend()
@@ -113,7 +113,7 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
     # --- Phase 1 (Task 2) ---
     plot_curve(axes[1], sf_p1_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
     plot_curve(axes[1], base_p1_c, f"Baseline DDPG ($\\gamma$ = {gamma_label})", "orange")
-    axes[1].set_title("Phase 1: Task 2 (Backward) - Transfer Learning")
+    axes[1].set_title("Task 2 (Backward) - Transfer Learning")
     axes[1].set_xlabel("Episodes")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_{args.prefix}_gamma_{gamma_str}_{args.steps}_steps")
         os.makedirs(transfer_comparison_folder, exist_ok=True)
 
-        fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, window_size=20)
+        fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, args.gamma, window_size=20)
         
         save_path = os.path.join(transfer_comparison_folder, f"transfer_{args.prefix}_gamma_{args.gamma}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}.pdf")
         fig.savefig(save_path)
