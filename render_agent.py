@@ -9,17 +9,10 @@ import numpy as np
 import torch
 import imageio.v2 as imageio
 
-from ActorCritic import Actor, QCritic, SFCritic
+from ActorCritic import Actor
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def make_task_weights(device):
-    """Create the forward and backward task vectors."""
-    w_forward = torch.tensor([[1.0], [1.0]], dtype=torch.float32, device=device)
-    w_backward = torch.tensor([[-1.0], [1.0]], dtype=torch.float32, device=device)
-    return w_forward, w_backward
 
 
 def load_actor(run_dir, env_name, model_type, phase):
@@ -93,13 +86,13 @@ def render_actor_policy(
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--run_dir", type=str, required=True)
-    parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
-    parser.add_argument("--model_type", type=str, choices=["sf", "ddpg"], required=True)
-    parser.add_argument("--phase", type=int, default=0)
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--max_steps", type=int, default=1000)
-    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--run_dir", type=str, required=True, help="Directory where the trained model is saved.")
+    parser.add_argument("--env_name", type=str, default="HalfCheetah-v5", help="Name of the Gym environment to render.")
+    parser.add_argument("--model_type", type=str, choices=["sf", "ddpg"], required=True, help="Type of the model to render.")
+    parser.add_argument("--phase", type=int, default=0, help="Phase of the training process (0 or 1).")
+    parser.add_argument("--fps", type=int, default=30, help="Frames per second for the output video.")
+    parser.add_argument("--max_steps", type=int, default=1000, help="Maximum number of steps to render.")
+    parser.add_argument("--output", type=str, default=None, help="Output path for the rendered video.")
 
     args = parser.parse_args()
 
