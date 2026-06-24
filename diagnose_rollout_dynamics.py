@@ -1,5 +1,5 @@
 import os
-#os.environ.setdefault("MUJOCO_GL", "egl") # decomment this line if you want to run diagnostics with rendering on a headless server (e.g. Colab of Kaggle or Leonardo) (requires EGL support); keep it commented if you want to run it locally with rendering to a window
+# os.environ.setdefault("MUJOCO_GL", "egl") # decomment this line if you want to run diagnostics with rendering on a headless server (e.g. Colab of Kaggle or Leonardo) (requires EGL support); keep it commented if you want to run it locally with rendering to a window
 
 import argparse
 import json
@@ -15,8 +15,9 @@ from ActorCritic import Actor, SFCritic, QCritic
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 ###########################################
-#modifica
+# modifica
 def sanitize_folder_value(value):
     return (
         str(value)
@@ -53,7 +54,6 @@ def build_diagnostics_dir(
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
 
     return diagnostics_dir
-
 #############################################################
 
 
@@ -179,6 +179,234 @@ def compute_state_diagnostics(states):
         "state_max_per_dim": [float(x) for x in np.max(states, axis=0)],
         "state_abs_max_per_dim": [float(x) for x in np.max(np.abs(states), axis=0)],
     }
+
+
+# ============================================================
+# NEW: Spurious flipped-basin indicator
+# ============================================================
+
+def _to_float_array_with_nan(values):
+    """Convert floats/None values to a float array with NaNs for missing values."""
+    converted = []
+    for value in values:
+        if value is None:
+            converted.append(np.nan)
+        else:
+            converted.append(float(value))
+    return np.asarray(converted, dtype=np.float64)
+
+
+def _summarize_optional_values(name, values):
+    """Summarize scalar values while ignoring None and NaN entries."""
+    clean_values = []
+    for value in values:
+        if value is None:
+            continue
+        value = float(value)
+        if np.isfinite(value):
+            clean_values.append(value)
+
+    return summarize_array(name, clean_values)
+
+
+def _find_sustained_flip_start(flip_mask, window_size=50, min_fraction=0.8):
+    """
+    Find the first timestep where the flipped posture is sustained.
+
+    A sustained flip is detected when at least min_fraction of a sliding
+    window satisfies the flip condition.
+    """
+    flip_mask = np.asarray(flip_mask, dtype=bool)
+
+    if len(flip_mask) == 0:
+        return None
+
+    if len(flip_mask) < window_size:
+        if float(np.mean(flip_mask)) >= min_fraction:
+            return 0
+        return None
+
+    for start_idx in range(0, len(flip_mask) - window_size + 1):
+        window_fraction = float(np.mean(flip_mask[start_idx:start_idx + window_size]))
+        if window_fraction >= min_fraction:
+            return int(start_idx)
+
+    return None
+
+
+def _compute_normalized_q_jump(q_values, flip_start, local_window=50):
+    """
+    Compute the local normalized Q jump around a sustained flip transition.
+
+    jump_norm = (mean(Q_post) - mean(Q_pre)) / std(Q_episode)
+    """
+    q_values = _to_float_array_with_nan(q_values)
+
+    if flip_start is None:
+        return None, None, None
+
+    if len(q_values) == 0 or not np.any(np.isfinite(q_values)):
+        return None, None, None
+
+    t = int(flip_start)
+
+    pre_values = q_values[max(0, t - local_window):t]
+    post_values = q_values[t:min(len(q_values), t + local_window)]
+
+    pre_values = pre_values[np.isfinite(pre_values)]
+    post_values = post_values[np.isfinite(post_values)]
+
+    if len(pre_values) == 0 or len(post_values) == 0:
+        return None, None, None
+
+    q_std = float(np.nanstd(q_values))
+
+    pre_mean = float(np.mean(pre_values))
+    post_mean = float(np.mean(post_values))
+
+    if q_std < 1e-8:
+        return None, pre_mean, post_mean
+
+    jump_norm = float((post_mean - pre_mean) / (q_std + 1e-8))
+
+    return jump_norm, pre_mean, post_mean
+
+
+def compute_spurious_basin_indicator_for_episode(
+    rooty_angles,
+    q_before_values,
+    q_after_values,
+    flip_threshold=2.5,
+    sustained_window=50,
+    sustained_min_fraction=0.8,
+    q_jump_window=50,
+):
+    """
+    Compute the spurious flipped-basin indicator for one episode.
+
+    Main score:
+        B = flip_fraction * max(0, normalized Q_after jump at sustained flip)
+
+    If there is no sustained flip, B is set to 0 when Q_after values exist.
+    If Q_after values are not available, B is left undefined as None.
+    """
+    theta = _to_float_array_with_nan(rooty_angles)
+    q_before = _to_float_array_with_nan(q_before_values)
+    q_after = _to_float_array_with_nan(q_after_values)
+
+    has_theta = len(theta) > 0 and np.any(np.isfinite(theta))
+    has_q_before = len(q_before) > 0 and np.any(np.isfinite(q_before))
+    has_q_after = len(q_after) > 0 and np.any(np.isfinite(q_after))
+
+    result = {
+        "flip_threshold": float(flip_threshold),
+        "sustained_window": int(sustained_window),
+        "sustained_min_fraction": float(sustained_min_fraction),
+        "q_jump_window": int(q_jump_window),
+        "num_steps": int(len(theta)),
+        "flip_fraction": None,
+        "sustained_flip": False,
+        "sustained_flip_start": None,
+        "q_after_pre_flip_mean": None,
+        "q_after_post_flip_mean": None,
+        "q_after_jump_norm_at_flip": None,
+        "q_before_pre_flip_mean": None,
+        "q_before_post_flip_mean": None,
+        "q_before_jump_norm_at_flip": None,
+        "spurious_basin_indicator": None,
+        "spurious_basin_indicator_q_before": None,
+    }
+
+    if not has_theta:
+        return result
+
+    valid_theta = np.isfinite(theta)
+
+    flip_mask = np.zeros_like(theta, dtype=bool)
+    flip_mask[valid_theta] = np.abs(theta[valid_theta]) > flip_threshold
+
+    flip_fraction = float(np.mean(flip_mask[valid_theta]))
+
+    flip_start = _find_sustained_flip_start(
+        flip_mask=flip_mask,
+        window_size=sustained_window,
+        min_fraction=sustained_min_fraction,
+    )
+
+    result["flip_fraction"] = flip_fraction
+    result["sustained_flip"] = flip_start is not None
+    result["sustained_flip_start"] = None if flip_start is None else int(flip_start)
+
+    if flip_start is None:
+        if has_q_after:
+            result["spurious_basin_indicator"] = 0.0
+        if has_q_before:
+            result["spurious_basin_indicator_q_before"] = 0.0
+        return result
+
+    q_after_jump_norm, q_after_pre, q_after_post = _compute_normalized_q_jump(
+        q_values=q_after_values,
+        flip_start=flip_start,
+        local_window=q_jump_window,
+    )
+
+    q_before_jump_norm, q_before_pre, q_before_post = _compute_normalized_q_jump(
+        q_values=q_before_values,
+        flip_start=flip_start,
+        local_window=q_jump_window,
+    )
+
+    result["q_after_pre_flip_mean"] = q_after_pre
+    result["q_after_post_flip_mean"] = q_after_post
+    result["q_after_jump_norm_at_flip"] = q_after_jump_norm
+
+    result["q_before_pre_flip_mean"] = q_before_pre
+    result["q_before_post_flip_mean"] = q_before_post
+    result["q_before_jump_norm_at_flip"] = q_before_jump_norm
+
+    if q_after_jump_norm is not None:
+        result["spurious_basin_indicator"] = float(
+            flip_fraction * max(0.0, q_after_jump_norm)
+        )
+
+    if q_before_jump_norm is not None:
+        result["spurious_basin_indicator_q_before"] = float(
+            flip_fraction * max(0.0, q_before_jump_norm)
+        )
+
+    return result
+
+
+def aggregate_spurious_basin_indicators(per_episode_results):
+    """Aggregate spurious flipped-basin indicators over rollout episodes."""
+    if len(per_episode_results) == 0:
+        return {}
+
+    diagnostics = {
+        "per_episode": per_episode_results,
+        "sustained_flip_rate": float(
+            np.mean([bool(x.get("sustained_flip", False)) for x in per_episode_results])
+        ),
+    }
+
+    keys_to_summarize = [
+        "flip_fraction",
+        "sustained_flip_start",
+        "q_after_jump_norm_at_flip",
+        "q_before_jump_norm_at_flip",
+        "spurious_basin_indicator",
+        "spurious_basin_indicator_q_before",
+    ]
+
+    for key in keys_to_summarize:
+        diagnostics.update(
+            _summarize_optional_values(
+                name=key,
+                values=[item.get(key) for item in per_episode_results],
+            )
+        )
+
+    return diagnostics
 
 
 def initialize_timeseries():
@@ -522,6 +750,7 @@ def diagnose_rollout_dynamics(
         - action saturation
         - critic Q before/after action optimization
         - state-space excursions
+        - spurious flipped-basin indicator over all episodes
         - optional per-timestep timeseries for one selected episode
     """
     env = gym.make(env_name, render_mode="rgb_array") if render else gym.make(env_name)
@@ -547,9 +776,17 @@ def diagnose_rollout_dynamics(
 
     selected_timeseries = None
 
+    # NEW: Store one spurious-basin diagnostic result per episode.
+    spurious_basin_episode_results = []
+
     for episode_idx in range(episodes):
         state, _ = env.reset()
         episode_return = 0.0
+
+        # NEW: Minimal traces needed to compute the basin indicator for this episode.
+        episode_rooty_angles = []
+        episode_q_before_values = []
+        episode_q_after_values = []
 
         should_render = render and episode_idx == timeseries_episode
         should_save_timeseries = save_timeseries and episode_idx == timeseries_episode
@@ -636,6 +873,12 @@ def diagnose_rollout_dynamics(
             final_action = final_action_tensor.detach().cpu().numpy()[0]
             final_action = np.clip(final_action, -max_action, max_action)
 
+            # NEW: Store posture and critic values for the current state.
+            # q_before/q_after are defined at this state before env.step().
+            episode_rooty_angles.append(float(state[1]) if len(state) > 1 else None)
+            episode_q_before_values.append(q_before)
+            episode_q_after_values.append(q_after)
+
             next_state, _, terminated, truncated, info = env.step(final_action)
 
             if should_render:
@@ -688,6 +931,15 @@ def diagnose_rollout_dynamics(
 
             if terminated or truncated:
                 break
+
+        # NEW: Compute the spurious flipped-basin indicator for this episode.
+        spurious_basin_episode_results.append(
+            compute_spurious_basin_indicator_for_episode(
+                rooty_angles=episode_rooty_angles,
+                q_before_values=episode_q_before_values,
+                q_after_values=episode_q_after_values,
+            )
+        )
 
         episode_returns.append(float(episode_return))
 
@@ -769,6 +1021,11 @@ def diagnose_rollout_dynamics(
 
     results["state_diagnostics"] = compute_state_diagnostics(states_np)
 
+    # NEW: Aggregate the spurious flipped-basin indicator over all episodes.
+    results["spurious_basin_diagnostics"] = aggregate_spurious_basin_indicators(
+        spurious_basin_episode_results
+    )
+
     if save_timeseries:
         results["timeseries"] = selected_timeseries
 
@@ -806,6 +1063,19 @@ def print_summary(results, mode):
         print(f"Predicted Q improvement: {results['predicted_q_improvement_mean']:.4f}")
         print(f"Mean ||a_final - a_actor||: {results['final_minus_actor_action_norm_mean']:.4f}")
 
+    # NEW: Print compact spurious flipped-basin diagnostics.
+    basin_diag = results.get("spurious_basin_diagnostics", {})
+    if basin_diag:
+        print("\nSpurious flipped-basin diagnostics:")
+        print(f"Sustained flip rate: {basin_diag.get('sustained_flip_rate')}")
+        print(
+            "Spurious basin indicator: "
+            f"{basin_diag.get('spurious_basin_indicator_mean')} ± "
+            f"{basin_diag.get('spurious_basin_indicator_std')}"
+        )
+        print(f"Mean flip fraction: {basin_diag.get('flip_fraction_mean')}")
+        print(f"Mean Q_after jump norm: {basin_diag.get('q_after_jump_norm_at_flip_mean')}")
+
     if results.get("timeseries_saved", False):
         print("\nTimeseries:")
         print(f"Saved timeseries for episode index: {results['timeseries_episode']}")
@@ -821,14 +1091,13 @@ def main():
     parser.add_argument("--run_name", type=str, required=True)
 
     #################################################
-    #modifica
-
+    # modifica
     parser.add_argument(
-    "--gamma",
-    type=str,
-    required=True,
-    help="Gamma associato alla run.",
-)
+        "--gamma",
+        type=str,
+        required=True,
+        help="Gamma associato alla run.",
+    )
 
     parser.add_argument(
         "--model_type",
@@ -837,7 +1106,6 @@ def main():
         required=True,
         help="Tipo di modello usato dalla diagnostica.",
     )
-
     ################################################
 
     parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
@@ -880,8 +1148,7 @@ def main():
     args = parser.parse_args()
 
     ###################################################
-    #modifica
-
+    # modifica
     expected_model_type = (
         "sf"
         if args.mode.startswith("sf_")
@@ -894,14 +1161,12 @@ def main():
             f"--model_type {expected_model_type}, "
             f"non '{args.model_type}'."
         )
-
     ####################################################
 
     run_dir = Path("artifacts") / args.run_name
 
     ##################################################
-    #modifica
-
+    # modifica
     diagnostics_dir = build_diagnostics_dir(
         run_dir=run_dir,
         gamma=args.gamma,
@@ -910,7 +1175,6 @@ def main():
         model_type=args.model_type,
         task=args.task,
     )
-
     ####################################################
 
     w_forward, w_backward = make_task_weights(device)
@@ -930,16 +1194,6 @@ def main():
         q_critic=q_critic,
     )
 
-    # if args.output_name is None:
-    #     suffix = "timeseries" if (args.save_timeseries or args.render) else "summary"
-    #     output_name = (
-    #         f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_{suffix}.json"
-    #     )
-    # else:
-    #     output_name = args.output_name
-
-    # output_path = run_dir / output_name
-
     if args.output_name is None:
         suffix = (
             "timeseries"
@@ -954,11 +1208,9 @@ def main():
 
     render_path = None
     if args.render:
-        # render_path = run_dir / (
-        #     f"rollout_dynamics_{args.mode}_phase_{args.phase}_{args.task}_episode_{args.timeseries_episode}.mp4"
-        # )
-
-        render_path = diagnostics_dir / (f"rollout_dynamics_episode_{args.timeseries_episode}.mp4")
+        render_path = diagnostics_dir / (
+            f"rollout_dynamics_episode_{args.timeseries_episode}.mp4"
+        )
 
     # If rendering, save the matching timeseries automatically.
     save_timeseries = args.save_timeseries or args.render
@@ -986,15 +1238,13 @@ def main():
     print_summary(results, args.mode)
 
     ###########################
-    #modifica
-
+    # modifica
     results["gamma"] = float(args.gamma)
     results["phase"] = int(args.phase)
     results["mode"] = args.mode
     results["model_type"] = args.model_type
     results["task"] = args.task
     results["run_name"] = args.run_name
-
     #################################
 
     with open(output_path, "w") as f:
@@ -1005,5 +1255,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
