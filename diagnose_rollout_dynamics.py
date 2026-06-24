@@ -4,6 +4,7 @@ os.environ.setdefault("MUJOCO_GL", "egl") # decomment this line if you want to r
 import argparse
 import json
 from pathlib import Path
+from tqdm import tqdm
 
 import gymnasium as gym
 import numpy as np
@@ -779,7 +780,7 @@ def diagnose_rollout_dynamics(
     # NEW: Store one spurious-basin diagnostic result per episode.
     spurious_basin_episode_results = []
 
-    for episode_idx in range(episodes):
+    for episode_idx in tqdm(range(episodes), leave = False, desc = f"Episode {episode_idx + 1}/{episodes}"):
         state, _ = env.reset()
         episode_return = 0.0
 
