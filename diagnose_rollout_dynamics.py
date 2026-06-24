@@ -1122,7 +1122,7 @@ def main():
     )
     parser.add_argument("--phase", type=int, default=0)
     parser.add_argument("--task", type=str, choices=["forward", "backward"], default="backward")
-    parser.add_argument("--episodes", type=int, default=5)
+    parser.add_argument("--episodes", type=str, default='5')
     parser.add_argument("--max_episode_steps", type=int, default=1000)
     parser.add_argument("--opt_steps", type=int, default=250)
     parser.add_argument("--opt_step_size", type=float, default=0.2)
@@ -1223,7 +1223,7 @@ def main():
         mode=internal_mode,
         sf_critic=sf_critic_for_mode,
         q_critic=q_critic_for_mode,
-        episodes=args.episodes,
+        episodes=int(args.episodes),
         max_episode_steps=args.max_episode_steps,
         opt_steps=args.opt_steps,
         opt_step_size=args.opt_step_size,

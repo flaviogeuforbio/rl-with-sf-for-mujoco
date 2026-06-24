@@ -59,7 +59,7 @@ def main():
                 "--model_type", model_type,
                 "--phase", phase,
                 "--task", task,
-                "--episodes", episodes,
+                "--episodes", str(episodes),
                 "--output_name", output_name,
                 "--render",
                 "--save_timeseries",
