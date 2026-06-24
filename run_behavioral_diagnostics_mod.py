@@ -10,6 +10,7 @@ def main():
     parser.add_argument("--model_type", type=str, default="sf", help="Model type (default: sf)")
     parser.add_argument("--phase", type=str, help="Phase value (e.g., 0)")
     parser.add_argument("--task", type=str, default="backward", help="Task value (default: backward)")
+    parser.add_argument("--episodes", type=int, default=5, help="N. of episodes used for diagnostics")
     parser.add_argument("--output_name", type=str, default=None, help="Output diagnostics results file name")
 
     args = parser.parse_args()
@@ -23,6 +24,7 @@ def main():
     mode = args.mode
     # mode_str = mode.replace(".", "_")
     model_type = args.model_type 
+    episodes = args.episodes
     # model_type_str = model_type.replace(".", "_")
     output_name = args.output_name
 
@@ -57,6 +59,7 @@ def main():
                 "--model_type", model_type,
                 "--phase", phase,
                 "--task", task,
+                "--episodes", episodes,
                 "--output_name", output_name,
                 "--render",
                 "--save_timeseries",
