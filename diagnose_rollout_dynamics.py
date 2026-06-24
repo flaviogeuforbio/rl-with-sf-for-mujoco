@@ -1,5 +1,5 @@
 import os
-# os.environ.setdefault("MUJOCO_GL", "egl") # decomment this line if you want to run diagnostics with rendering on a headless server (e.g. Colab of Kaggle or Leonardo) (requires EGL support); keep it commented if you want to run it locally with rendering to a window
+os.environ.setdefault("MUJOCO_GL", "egl") # decomment this line if you want to run diagnostics with rendering on a headless server (e.g. Colab of Kaggle or Leonardo) (requires EGL support); keep it commented if you want to run it locally with rendering to a window
 
 import argparse
 import json
