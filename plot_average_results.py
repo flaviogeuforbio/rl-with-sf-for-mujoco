@@ -60,7 +60,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     sf_scratch_c = smooth_and_pad(sf_scratch_p0, window_size)
     base_scratch_c = smooth_and_pad(base_scratch_p0, window_size)
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
     plot_curve(axes[0], sf_seq_p0_c, "SF-DDPG", "blue")
     plot_curve(axes[0], base_seq_p0_c, "Standard DDPG", "orange")
@@ -86,8 +86,8 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, window_size=20):
     return fig, axes
 
 
-def generate_gamma_ablation_plot(run_dir, gamma_label, window_size=20):
-    """Generates the comparison plot for a single gamma ablation run."""
+def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
+    """Generates the comparison plot for a single gamma sweep run."""
     
     # 1. Load data 
     sf_p0, sf_p1 = load_data(run_dir, "sf_ddpg") 
@@ -99,11 +99,11 @@ def generate_gamma_ablation_plot(run_dir, gamma_label, window_size=20):
     base_p0_c = smooth_and_pad(base_p0, window_size)
     base_p1_c = smooth_and_pad(base_p1, window_size)
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
     # --- Phase 0 (Task 1) ---
-    plot_curve(axes[0], sf_p0_c, f"SF-DDPG ($\gamma$ = {gamma_label})", "blue")
-    plot_curve(axes[0], base_p0_c, f"Baseline DDPG ($\gamma$ = {gamma_label})", "orange")
+    plot_curve(axes[0], sf_p0_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
+    plot_curve(axes[0], base_p0_c, f"Baseline DDPG ($\\gamma$ = {gamma_label})", "orange")
     axes[0].set_title("Phase 0: Task 1 (Forward)")
     axes[0].set_xlabel("Episodes")
     axes[0].set_ylabel("Return (Smoothed)")
@@ -111,8 +111,8 @@ def generate_gamma_ablation_plot(run_dir, gamma_label, window_size=20):
     axes[0].grid(True, alpha=0.3)
     
     # --- Phase 1 (Task 2) ---
-    plot_curve(axes[1], sf_p1_c, f"SF-DDPG ($\gamma$ = {gamma_label})", "blue")
-    plot_curve(axes[1], base_p1_c, f"Baseline DDPG ($\gamma$ = {gamma_label})", "orange")
+    plot_curve(axes[1], sf_p1_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
+    plot_curve(axes[1], base_p1_c, f"Baseline DDPG ($\\gamma$ = {gamma_label})", "orange")
     axes[1].set_title("Phase 1: Task 2 (Backward) - Transfer Learning")
     axes[1].set_xlabel("Episodes")
     axes[1].legend()
@@ -122,58 +122,66 @@ def generate_gamma_ablation_plot(run_dir, gamma_label, window_size=20):
     
     return fig, axes
 
+
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate learning curve plots.")
+    parser.add_argument("--transfer_dir", type=str, default="transfer_learning", help="Subfolder in artifacts containing the transfer runs (e.g., transfer_learning_long_run)")
+    parser.add_argument("--steps", type=str, default="50000", help="Number of steps per phase used in the folder names")
+    parser.add_argument("--plot_transfer", action="store_true", help="Generate the transfer learning comparison plot")
+    parser.add_argument("--plot_gamma", action="store_true", help="Generate the gamma sweep plots")
+    parser.add_argument("--plot_all", action="store_true", help="Generate all plots")
+    args = parser.parse_args()
+
+    if args.plot_all:
+        args.plot_transfer = True
+        args.plot_gamma = True
+
+    if not (args.plot_transfer or args.plot_gamma):
+        print("Error: Specify at least one plot to generate using --plot_transfer, --plot_gamma, or --plot_all")
+        exit(1)
+
     LAMBDA_Q = "0.2"
     LAMBDA_VEC = "1.0"
-    STEPS_PER_PHASE = "50000"
-
-    # SEQ_DIR = os.path.join("artifacts", "final_eval")
-    # SCRATCH_DIR = os.path.join("artifacts", "final_eval_backward_only")
-
-    SEQ_DIR = os.path.join("artifacts", "transfer_learning", "eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning")
-    SCRATCH_DIR = os.path.join("artifacts", "transfer_learning", "eval_transfer_0_99_lq_0_2_lvec_1_0_stepsxphase_50000_backward_only")
-    
-    ROOT_DIR = "artifacts" # for saving the plots
+    ROOT_DIR = "artifacts"
 
     # Create the figures directory
     figures_dir = os.path.join(ROOT_DIR, "figures")
     os.makedirs(figures_dir, exist_ok=True)
 
-    # Create the transfer comparison subfolder
-    transfer_comparison_folder = os.path.join(figures_dir, "transfer_comparison")
-    os.makedirs(transfer_comparison_folder, exist_ok=True)
-
-    # Create the gamma ablation subfolder
-    gamma_folder = os.path.join(figures_dir, "gamma_ablation")
-    os.makedirs(gamma_folder, exist_ok=True)
-
-    fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, window_size=20)
-    
-    # Save transfer comparison plot
-    save_path = os.path.join(transfer_comparison_folder, "transfer.pdf")
-    fig.savefig(save_path)
-
-    # Save gamma ablation plot
-
-    # List of gamma values to loop through
-    gamma_values = ["0.1", "0.2" , "0.3", "0.5", "0.7", "0.8"]
-
-    for gamma in gamma_values:
-        # 1. Format the folder name (e.g., "0.5" becomes "eval_gamma_0_5")
-        folder_name = f"eval_gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{STEPS_PER_PHASE}" 
-        run_dir = os.path.join("artifacts", folder_name)
+    if args.plot_transfer:
+        # TODO dynamically set also gamma to have more flexibility
+        SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_3_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_transfer_learning")
+        SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, f"eval_transfer_0_3_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}_backward_only")
         
-        # 2. Generate the plot
-        fig, axes = generate_gamma_ablation_plot(run_dir, gamma)
+        # Dynamically name the output folder based on the number of steps
+        transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_{args.steps}_steps")
+        os.makedirs(transfer_comparison_folder, exist_ok=True)
 
-        # 3. Format the save path (e.g., "0.5" becomes "gamma_0_5.pdf")
-        pdf_filename = f"gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{STEPS_PER_PHASE}.pdf"
-        save_path = os.path.join(gamma_folder, pdf_filename)
+        fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, window_size=20)
         
-        # 4. Save and clear the figure from memory
-        fig.savefig(save_path, bbox_inches='tight')
-        plt.close(fig) 
-        
+        save_path = os.path.join(transfer_comparison_folder, "transfer_gamma_0_3.pdf")
+        fig.savefig(save_path)
+        plt.close(fig)
         print(f"Saved: {save_path}")
-    
-    #plt.show()
+
+    if args.plot_gamma:
+        # Dynamically name the output folder based on the number of steps
+        gamma_folder = os.path.join(figures_dir, f"gamma_sweep_{args.steps}_steps")
+        os.makedirs(gamma_folder, exist_ok=True)
+        
+        gamma_values = ["0.1", "0.2" , "0.3", "0.5", "0.7", "0.8"]
+
+        for gamma in gamma_values:
+            folder_name = f"eval_gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}" 
+            run_dir = os.path.join(ROOT_DIR, folder_name)
+            
+            fig, axes = generate_gamma_sweep_plot(run_dir, gamma)
+
+            pdf_filename = f"gamma_{gamma.replace('.', '_')}_lq_{LAMBDA_Q.replace('.', '_')}_lvec_{LAMBDA_VEC.replace('.', '_')}_stepsxphase_{args.steps}.pdf"
+            save_path = os.path.join(gamma_folder, pdf_filename)
+            
+            fig.savefig(save_path, bbox_inches='tight')
+            plt.close(fig) 
+            print(f"Saved: {save_path}")

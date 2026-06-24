@@ -1,5 +1,5 @@
 import os
-os.environ["MUJOCO_GL"] = "egl"
+#os.environ["MUJOCO_GL"] = "egl" # decomment this line if you want to use EGL rendering (works on headless servers like kaggle or Colab or Leonardo, but not on Windows local machines)
 
 import argparse
 from pathlib import Path

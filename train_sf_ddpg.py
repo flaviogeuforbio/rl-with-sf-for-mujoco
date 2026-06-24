@@ -164,9 +164,7 @@ def train_sf_ddpg(
 
                 # Exploration Noise:
                 # Once the Actor starts making decisions, we add Gaussian noise
-                # to its actions. The Actor is deterministic; without this noise,
-                # it would execute the exact same movement every time and get stuck
-                # in a local minimum.
+                # to its actions to encourage exploration.
                 noise = np.random.normal(0, 0.1, size=action_dim)
 
                 action = (action + noise).clip(-max_action, max_action)
@@ -248,7 +246,7 @@ def train_sf_ddpg(
             #
             # we store `terminated` rather than `done`
             # as the terminal flag. When `truncated=True` (time limit reached),
-            # the episode ends administratively but the next state is still
+            # the episode ends, but the next state is still
             # physically valid. Bootstrapping should continue from it.
             # Storing `done=True` on truncation would incorrectly zero out the
             # TD target's future-return term, causing the critic to
