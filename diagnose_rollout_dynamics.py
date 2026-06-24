@@ -780,7 +780,7 @@ def diagnose_rollout_dynamics(
     # NEW: Store one spurious-basin diagnostic result per episode.
     spurious_basin_episode_results = []
 
-    for episode_idx in tqdm(range(episodes), leave = False, desc = f"Episode {episode_idx + 1}/{episodes}"):
+    for episode_idx in tqdm(range(episodes), leave = False, desc = f"Episodes: "):
         state, _ = env.reset()
         episode_return = 0.0
 
