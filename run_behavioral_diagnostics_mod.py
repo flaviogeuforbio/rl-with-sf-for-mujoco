@@ -7,23 +7,24 @@ def main():
     parser = argparse.ArgumentParser(description="Run behavioral diagnostics.")
     parser.add_argument("--gamma", type=str, help="Gamma value (e.g., 0.99)")
     parser.add_argument("--mode", type=str, default="sf_action_optimization", help="Mode value (default: sf_action_optimization)")
-    parser.add_argument("model_type", type=str, default="sf", help="Model type (default: sf)")
-    parser.add_argument("phase", type=str, help="Phase value (e.g., 0)")
-    parser.add_argument("task", type=str, default="backward", help="Task value (default: backward)")
-
+    parser.add_argument("--model_type", type=str, default="sf", help="Model type (default: sf)")
+    parser.add_argument("--phase", type=str, help="Phase value (e.g., 0)")
+    parser.add_argument("--task", type=str, default="backward", help="Task value (default: backward)")
+    parser.add_argument("--output_name", type=str, default=None, help="Output diagnostics results file name")
 
     args = parser.parse_args()
 
     gamma = args.gamma
     gamma_str = gamma.replace(".", "_")
     phase = args.phase
-    phase_str = phase.replace(".", "_")
+    # phase_str = phase.replace(".", "_")
     task = args.task
-    task_str = task.replace(".", "_")
+    # task_str = task.replace(".", "_")
     mode = args.mode
-    mode_str = mode.replace(".", "_")
+    # mode_str = mode.replace(".", "_")
     model_type = args.model_type 
-    model_type_str = model_type.replace(".", "_")
+    # model_type_str = model_type.replace(".", "_")
+    output_name = args.output_name
 
     print(f"Starting behavioral diagnostics for Gamma = {gamma}, Mode = {mode}, Model Type = {model_type}, Phase = {phase}, Task = {task}...")
 
@@ -56,6 +57,7 @@ def main():
                 "--model_type", model_type,
                 "--phase", phase,
                 "--task", task,
+                "--output_name", output_name,
                 "--render",
                 "--save_timeseries",
 
