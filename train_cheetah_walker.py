@@ -149,10 +149,10 @@ def train_sf_ddpg(
             
             # --- Restore RNG (Random Number Generator) States ---
             np.random.set_state(checkpoint['numpy_rng'])
-            torch.set_rng_state(checkpoint['torch_rng'])
+            torch.set_rng_state(checkpoint['torch_rng'].cpu().to(torch.uint8))
             random.setstate(checkpoint['python_rng'])
             if checkpoint.get('cuda_rng') is not None and torch.cuda.is_available():
-                torch.cuda.set_rng_state(checkpoint['cuda_rng'])
+                torch.cuda.set_rng_state(checkpoint['cuda_rng'].cpu().to(torch.uint8))
             
             env.reset(seed=seed)
             env.unwrapped.set_state(checkpoint['qpos'], checkpoint['qvel'])
@@ -432,10 +432,10 @@ def train_ddpg(
             
             # --- Restore RNG States ---
             np.random.set_state(checkpoint['numpy_rng'])
-            torch.set_rng_state(checkpoint['torch_rng'])
+            torch.set_rng_state(checkpoint['torch_rng'].cpu().to(torch.uint8))
             random.setstate(checkpoint['python_rng'])
             if checkpoint.get('cuda_rng') is not None and torch.cuda.is_available():
-                torch.cuda.set_rng_state(checkpoint['cuda_rng'])
+                torch.cuda.set_rng_state(checkpoint['cuda_rng'].cpu().to(torch.uint8))
             
             env.reset(seed=seed)
             env.unwrapped.set_state(checkpoint['qpos'], checkpoint['qvel'])
