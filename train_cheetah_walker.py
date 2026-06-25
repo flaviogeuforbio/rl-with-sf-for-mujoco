@@ -65,35 +65,39 @@ def train_sf_ddpg(
     # ---------------------------------------------------------
     # CHECKPOINT LOADING (Networks)
     # ---------------------------------------------------------
-    start_phase_idx = 0 # If starting from scratch, it defaults to 0. If loading a checkpoint saved during the Walker task, it is set to 1.
-    # look at the if below to see how this is set.
+    start_phase_idx = 0 
     resume_path = Path(resume_dir) / "checkpoint_sf.pt" if resume_dir else None
 
     if resume_path and resume_path.exists():
         print(f"--> [RESUME] Loading SF networks from {resume_path}")
-        checkpoint = torch.load(resume_path)
+        # Save the checkpoint with safe device loading
+        checkpoint = torch.load(resume_path, map_location=device) # this contains the state_dicts for actor, sf_critic, their targets, optimizers, and other training states
+        
         actor.load_state_dict(checkpoint['actor'])
         sf_critic.load_state_dict(checkpoint['sf_critic'])
         actor_target.load_state_dict(checkpoint['actor_target'])
         sf_critic_target.load_state_dict(checkpoint['sf_critic_target'])
         actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
         critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
-        start_phase_idx = phases.index(checkpoint['phase']) # changes the starting phase index based on the checkpoint's phase
+        
+        saved_phase = checkpoint['phase']
+        
+        # Very Important: we need to set the starting phase index based on the checkpoint's phase.
+        # This is because if we are resuming from a checkpoint that was saved during the Walker task, we want to skip the Cheetah task and start directly from the Walker task.
+
+        # Handle walker_only mismatch
+        if saved_phase in phases:
+            start_phase_idx = phases.index(saved_phase)
+        else:
+            start_phase_idx = 0
+            
+        # If the loaded checkpoint was saved at the exact end of a phase, advance to the next task
+        if checkpoint.get('phase_completed', False):
+            start_phase_idx += 1
+            
         returns_history = checkpoint['returns_history']
     else:
         returns_history = []
-
-    for p_idx, phase in enumerate(phases):
-        # "Time travel": Skip phases we've already completed
-        if p_idx < start_phase_idx:
-            continue
-
-        task_name = "HalfCheetah (Forward)" if phase == 0 else "Walker2d (Forward)"
-        print(f"--- Starting Phase {phase}: {task_name} ---")
-
-        env = env_cheetah if phase == 0 else env_walker
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
 
         # ---------------------------------------------------------
         # CHECKPOINT LOADING (Buffer & Iterators)
@@ -115,10 +119,10 @@ def train_sf_ddpg(
             )
             w_optimizer = optim.Adam([w_param], lr=1e-2)
             replay_buffer.clear()
-            if p_idx == 0:
-                state, _ = env.reset(seed=seed)
-            else:
-                state, _ = env.reset()
+            
+            # Fix 9: Always seed the environment reset, regardless of phase
+            state, _ = env.reset(seed=seed)
+            
             episode_return = 0
             episode_returns = []
             start_step = 0
@@ -194,6 +198,7 @@ def train_sf_ddpg(
             if step > 0 and step % save_freq == 0:
                 checkpoint = {
                     'phase': phase,
+                    'phase_completed': False,
                     'step': step,
                     'actor': actor.state_dict(),
                     'sf_critic': sf_critic.state_dict(),
@@ -201,7 +206,7 @@ def train_sf_ddpg(
                     'sf_critic_target': sf_critic_target.state_dict(),
                     'actor_optimizer': actor_optimizer.state_dict(),
                     'critic_optimizer': critic_optimizer.state_dict(),
-                    'w_param': w_param,
+                    'w_param': w_param.data, # Fix 6: Save tensor data, not the Parameter object
                     'w_optimizer': w_optimizer.state_dict(),
                     'replay_buffer_storage': replay_buffer.storage,
                     'state': state,
@@ -216,10 +221,31 @@ def train_sf_ddpg(
         torch.save(actor.state_dict(), Path(run_dir) / f"sf_actor_{phase}.pth")
         torch.save(sf_critic.state_dict(), Path(run_dir) / f"sf_critic_{phase}.pth")
         
-        # Save a final checkpoint indicating phase completion
-        torch.save(checkpoint, Path(run_dir) / "checkpoint_sf.pt")
+        # Fix 1 & 2: Explicitly construct the final checkpoint to avoid UnboundLocalError 
+        # and flag the phase as completed to prevent infinite loops on resume.
+        final_checkpoint = {
+            'phase': phase,
+            'phase_completed': True,
+            'step': steps_per_phase,
+            'actor': actor.state_dict(),
+            'sf_critic': sf_critic.state_dict(),
+            'actor_target': actor_target.state_dict(),
+            'sf_critic_target': sf_critic_target.state_dict(),
+            'actor_optimizer': actor_optimizer.state_dict(),
+            'critic_optimizer': critic_optimizer.state_dict(),
+            'w_param': w_param.data,
+            'w_optimizer': w_optimizer.state_dict(),
+            'replay_buffer_storage': replay_buffer.storage,
+            'state': state,
+            'returns_history': returns_history,
+            'episode_returns': episode_returns,
+            'episode_return': episode_return
+        }
+        torch.save(final_checkpoint, Path(run_dir) / "checkpoint_sf.pt")
 
-    env.close()
+    env_cheetah.close()
+    env_walker.close()
+    
     return returns_history
 
 
@@ -274,7 +300,7 @@ def train_ddpg(
 
     if resume_path and resume_path.exists():
         print(f"--> [RESUME] Loading Q networks from {resume_path}")
-        checkpoint = torch.load(resume_path)
+        checkpoint = torch.load(resume_path, map_location=device)
         actor.load_state_dict(checkpoint['actor'])
         q_critic.load_state_dict(checkpoint['q_critic'])
         actor_target.load_state_dict(checkpoint['actor_target'])
@@ -288,6 +314,9 @@ def train_ddpg(
             if t['phase_idx'] == saved_phase:
                 start_phase_idx = i
                 break
+                
+        if checkpoint.get('phase_completed', False):
+            start_phase_idx += 1
     else:
         returns_history = []
 
@@ -318,10 +347,10 @@ def train_ddpg(
             critic_loss_val = 0.0
         else:
             replay_buffer.clear()
-            if p_idx == 0:
-                state, _ = env.reset(seed=seed)
-            else:
-                state, _ = env.reset()
+            
+            # Fix 9: Always seed the environment reset, regardless of phase
+            state, _ = env.reset(seed=seed)
+            
             episode_return = 0
             episode_returns = []
             start_step = 0
@@ -383,6 +412,7 @@ def train_ddpg(
             if step > 0 and step % save_freq == 0:
                 checkpoint = {
                     'phase_idx': phase_idx,
+                    'phase_completed': False,
                     'step': step,
                     'actor': actor.state_dict(),
                     'q_critic': q_critic.state_dict(),
@@ -403,10 +433,27 @@ def train_ddpg(
         torch.save(actor.state_dict(), Path(run_dir) / f"q_actor_{phase_idx}.pth")
         torch.save(q_critic.state_dict(), Path(run_dir) / f"q_critic_{phase_idx}.pth")
         
-        # Save a final checkpoint indicating phase completion
-        torch.save(checkpoint, Path(run_dir) / "checkpoint_q.pt")
+        # Explicitly construct the final checkpoint to avoid UnboundLocalError 
+        final_checkpoint = {
+            'phase_idx': phase_idx,
+            'phase_completed': True,
+            'step': steps_per_phase,
+            'actor': actor.state_dict(),
+            'q_critic': q_critic.state_dict(),
+            'actor_target': actor_target.state_dict(),
+            'q_critic_target': q_critic_target.state_dict(),
+            'actor_optimizer': actor_optimizer.state_dict(),
+            'critic_optimizer': critic_optimizer.state_dict(),
+            'replay_buffer_storage': replay_buffer.storage,
+            'state': state,
+            'returns_history': returns_history,
+            'episode_returns': episode_returns,
+            'episode_return': episode_return
+        }
+        torch.save(final_checkpoint, Path(run_dir) / "checkpoint_q.pt")
 
-    env.close()
+    env_cheetah.close()
+    env_walker.close()
     return returns_history
 
 def parse_arg():
