@@ -268,7 +268,11 @@ def train_sf_ddpg(
                     'episode_returns': episode_returns,
                     'episode_return': episode_return
                 }
-                torch.save(checkpoint, Path(run_dir) / "checkpoint_sf.pt")
+                # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+                tmp_path = Path(run_dir) / "checkpoint_sf.tmp"
+                ckpt_path = Path(run_dir) / "checkpoint_sf.pt"
+                torch.save(checkpoint, tmp_path)
+                os.replace(tmp_path, ckpt_path)
                 print(f"--> [SAVE] Checkpoint saved at Phase {phase}, Step {step}")
 
         returns_history.append(episode_returns)
@@ -300,7 +304,11 @@ def train_sf_ddpg(
             'episode_returns': episode_returns,
             'episode_return': episode_return
         }
-        torch.save(final_checkpoint, Path(run_dir) / "checkpoint_sf.pt")
+        # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+        tmp_path = Path(run_dir) / "checkpoint_sf.tmp"
+        ckpt_path = Path(run_dir) / "checkpoint_sf.pt"
+        torch.save(final_checkpoint, tmp_path)
+        os.replace(tmp_path, ckpt_path)
 
     env_cheetah.close()
     env_walker.close()
@@ -519,7 +527,11 @@ def train_ddpg(
                     'episode_returns': episode_returns,
                     'episode_return': episode_return
                 }
-                torch.save(checkpoint, Path(run_dir) / "checkpoint_q.pt")
+                # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+                tmp_path = Path(run_dir) / "checkpoint_q.tmp"
+                ckpt_path = Path(run_dir) / "checkpoint_q.pt"
+                torch.save(checkpoint, tmp_path)
+                os.replace(tmp_path, ckpt_path)
                 print(f"--> [SAVE] Checkpoint saved at Phase {phase_idx}, Step {step}")
 
         returns_history.append(episode_returns)
@@ -550,7 +562,11 @@ def train_ddpg(
             'episode_returns': episode_returns,
             'episode_return': episode_return
         }
-        torch.save(final_checkpoint, Path(run_dir) / "checkpoint_q.pt")
+        # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+        tmp_path = Path(run_dir) / "checkpoint_q.tmp"
+        ckpt_path = Path(run_dir) / "checkpoint_q.pt"
+        torch.save(final_checkpoint, tmp_path)
+        os.replace(tmp_path, ckpt_path)
 
     env_cheetah.close()
     env_walker.close()
