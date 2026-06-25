@@ -87,7 +87,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--run_dir", type=str, required=True, help="Directory where the trained model is saved.")
-    parser.add_argument("--env_name", type=str, default="HalfCheetah-v5", help="Name of the Gym environment to render.")
+    parser.add_argument("--env_name", type=str, default="HalfCheetah-v5", help="Name of the Gym environment to render, e.g. HalfCheetah-v5 or Walker2d-v5.")
     parser.add_argument("--model_type", type=str, choices=["sf", "ddpg"], required=True, help="Type of the model to render.")
     parser.add_argument("--phase", type=int, default=0, help="Phase of the training process (0 or 1).")
     parser.add_argument("--fps", type=int, default=30, help="Frames per second for the output video.")
