@@ -72,7 +72,7 @@ def train_sf_ddpg(
     if resume_path and resume_path.exists():
         print(f"--> [RESUME] Loading SF networks from {resume_path}")
         # Save the checkpoint with safe device loading
-        checkpoint = torch.load(resume_path, map_location=device) # this contains the state_dicts for actor, sf_critic, their targets, optimizers, and other training states
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False) # this contains the state_dicts for actor, sf_critic, their targets, optimizers, and other training states
         
         actor.load_state_dict(checkpoint['actor'])
         sf_critic.load_state_dict(checkpoint['sf_critic'])
@@ -367,7 +367,7 @@ def train_ddpg(
 
     if resume_path and resume_path.exists():
         print(f"--> [RESUME] Loading Q networks from {resume_path}")
-        checkpoint = torch.load(resume_path, map_location=device)
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False) # this contains the state_dicts for actor, q_critic, their targets, optimizers, and other training states
         actor.load_state_dict(checkpoint['actor'])
         q_critic.load_state_dict(checkpoint['q_critic'])
         actor_target.load_state_dict(checkpoint['actor_target'])
