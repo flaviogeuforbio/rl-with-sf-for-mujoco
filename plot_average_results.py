@@ -43,7 +43,7 @@ def plot_curve(ax, data, label, color, linestyle='-'):
     ax.plot(x, mean, label=label, color=color, linestyle=linestyle) # Plot the mean learning curve for the given label and color
     ax.fill_between(x, mean - margin, mean + margin, color=color, alpha=0.15) # Fill the area between (mean - margin) and (mean + margin) to create a shaded region representing the confidence interval around the mean curve
 
-def generate_transfer_comparison_plot(seq_dir, scratch_dir, gamma, window_size=20):
+def generate_transfer_comparison_plot(seq_dir, scratch_dir, gamma, main_title, window_size=20):
     """Generates the comparison plot and returns the Matplotlib figure and axes objects."""
     
     sf_seq_p0, sf_seq_p1 = load_data(seq_dir, "sf_ddpg") # Load Phase 0 and Phase 1 returns for SF-DDPG from the sequential training directory
@@ -61,10 +61,13 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, gamma, window_size=2
     base_scratch_c = smooth_and_pad(base_scratch_p0, window_size)
     
     fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
+
+    # Add the overall figure title
+    fig.suptitle(main_title, fontsize=16, fontweight='bold')
     
     plot_curve(axes[0], sf_seq_p0_c, "SF-DDPG", "blue")
     plot_curve(axes[0], base_seq_p0_c, "Standard DDPG", "orange")
-    axes[0].set_title(f"Task 1 (Forward), $\\gamma$ = {gamma}")
+    axes[0].set_title(f"Task 1, $\\gamma$ = {gamma}")
     axes[0].set_xlabel("Episodes")
     axes[0].set_ylabel("Return (Smoothed)")
     axes[0].legend()
@@ -76,7 +79,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, gamma, window_size=2
     plot_curve(axes[1], sf_scratch_c, "SF-DDPG (From Scratch)", "blue", linestyle='--')
     plot_curve(axes[1], base_scratch_c, "Standard DDPG (From Scratch)", "orange", linestyle='--')
     
-    axes[1].set_title(f"Task 2 (Backward) - Transfer vs Scratch, $\\gamma$ = {gamma}")
+    axes[1].set_title(f"Task 2 - Transfer vs Scratch, $\\gamma$ = {gamma}")
     axes[1].set_xlabel("Episodes")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -86,7 +89,7 @@ def generate_transfer_comparison_plot(seq_dir, scratch_dir, gamma, window_size=2
     return fig, axes
 
 
-def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
+def generate_gamma_sweep_plot(run_dir, gamma_label, main_title, window_size=20):
     """Generates the comparison plot for a single gamma sweep run."""
     
     # 1. Load data 
@@ -101,10 +104,13 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
     
     fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
     
+    # Add the overall figure title
+    fig.suptitle(main_title, fontsize=16, fontweight='bold')
+
     # --- Phase 0 (Task 1) ---
     plot_curve(axes[0], sf_p0_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
     plot_curve(axes[0], base_p0_c, f"Baseline DDPG ($\\gamma$ = {gamma_label})", "orange")
-    axes[0].set_title("Task 1 (Forward)")
+    axes[0].set_title("Task 1")
     axes[0].set_xlabel("Episodes")
     axes[0].set_ylabel("Return (Smoothed)")
     axes[0].legend()
@@ -113,7 +119,7 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
     # --- Phase 1 (Task 2) ---
     plot_curve(axes[1], sf_p1_c, f"SF-DDPG ($\\gamma$ = {gamma_label})", "blue")
     plot_curve(axes[1], base_p1_c, f"Baseline DDPG ($\\gamma$ = {gamma_label})", "orange")
-    axes[1].set_title("Task 2 (Backward) - Transfer Learning")
+    axes[1].set_title("Task 2 - Transfer Learning vs Scratch")
     axes[1].set_xlabel("Episodes")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -126,7 +132,7 @@ def generate_gamma_sweep_plot(run_dir, gamma_label, window_size=20):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Generate learning curve plots.")
+    parser = argparse.ArgumentParser(description="Generate learning curve plots.", fromfile_prefix_chars='@')
     parser.add_argument("--transfer_dir", type=str, default="transfer_learning", help="Subfolder in artifacts containing the transfer runs")
     parser.add_argument("--steps", type=str, default="50000", help="Number of steps per phase used in the folder names")
     parser.add_argument("--lambda_q", type=str, default="0.2", help="Q-loss weight used in the run")
@@ -136,6 +142,9 @@ if __name__ == "__main__":
     parser.add_argument("--plot_transfer", action="store_true", help="Generate the transfer learning comparison plot")
     parser.add_argument("--plot_gamma", action="store_true", help="Generate the gamma sweep plots")
     parser.add_argument("--plot_all", action="store_true", help="Generate all plots")
+    parser.add_argument("--scratch_suffix", type=str, default="backward_only", help="Suffix for the scratch training folder")
+    parser.add_argument("--main_title", type=str, default="Task 1: Forward | Task 2: Backward", help="Main title for the whole figure")
+
     args = parser.parse_args()
 
     if args.plot_all:
@@ -160,7 +169,7 @@ if __name__ == "__main__":
     if args.plot_transfer:
         # Dynamically build the directory strings using the gamma argument
         base_name_seq = f"{args.prefix}_transfer_gamma_{gamma_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}_transfer_learning"
-        base_name_scratch = f"{args.prefix}_transfer_gamma_{gamma_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}_backward_only"
+        base_name_scratch = f"{args.prefix}_transfer_gamma_{gamma_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}_{args.scratch_suffix}"
         
         SEQ_DIR = os.path.join(ROOT_DIR, args.transfer_dir, base_name_seq)
         SCRATCH_DIR = os.path.join(ROOT_DIR, args.transfer_dir, base_name_scratch)
@@ -169,7 +178,7 @@ if __name__ == "__main__":
         transfer_comparison_folder = os.path.join(figures_dir, f"transfer_comparison_{args.prefix}_gamma_{gamma_str}_{args.steps}_steps")
         os.makedirs(transfer_comparison_folder, exist_ok=True)
 
-        fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, args.gamma, window_size=20)
+        fig, axes = generate_transfer_comparison_plot(SEQ_DIR, SCRATCH_DIR, args.gamma, args.main_title, window_size=20)
         
         save_path = os.path.join(transfer_comparison_folder, f"transfer_{args.prefix}_gamma_{args.gamma}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}.pdf")
         fig.savefig(save_path)
@@ -189,7 +198,7 @@ if __name__ == "__main__":
             folder_name_2 = f"{args.prefix}_gamma_{g_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}" 
             run_dir = os.path.join(ROOT_DIR, folder_name_1, folder_name_2)
             
-            fig, axes = generate_gamma_sweep_plot(run_dir, gamma)
+            fig, axes = generate_gamma_sweep_plot(run_dir, gamma, args.main_title)
 
             pdf_filename = f"gamma_{g_str}_lq_{lq_str}_lvec_{lvec_str}_stepsxphase_{args.steps}.pdf"
             save_path = os.path.join(gamma_folder, pdf_filename)

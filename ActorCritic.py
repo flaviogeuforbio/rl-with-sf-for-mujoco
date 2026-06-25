@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Layer Normalization, delayed action concatenation in both Critics, 
+# and the near-zero initialization for the Actor's final layer, 
+# as described in the paper by Lillicrap et al. (2015), are implemented
+# to stabilize training and improve convergence in continuous action spaces.
+
 # ---------------------------------------------------------
 # 1. The Actor: Selects the deterministic action
 # ---------------------------------------------------------
@@ -10,14 +15,19 @@ class Actor(nn.Module):
         super().__init__()
         # Standard fully connected neural network
         self.l1 = nn.Linear(state_dim, 256)
+        self.ln1 = nn.LayerNorm(256) # Normalizes state representations
         self.l2 = nn.Linear(256, 256)
         self.l3 = nn.Linear(256, action_dim)
+        
+        # Small initialization for the final layer to prevent initial violent thrashing
+        torch.nn.init.uniform_(self.l3.weight, -3e-3, 3e-3)
+        torch.nn.init.uniform_(self.l3.bias, -3e-3, 3e-3)
         
         # max_action is the motor force limit of the Cheetah (e.g., 1.0)
         self.max_action = max_action
 
     def forward(self, state):
-        a = F.relu(self.l1(state))
+        a = F.relu(self.ln1(self.l1(state)))
         a = F.relu(self.l2(a))
         # Tanh maps the output to [-1, 1], which is then scaled by max_action
         return self.max_action * torch.tanh(self.l3(a)) # 6D action vector for the 6 joints of the HalfCheetah
@@ -29,18 +39,21 @@ class Actor(nn.Module):
 class SFCritic(nn.Module):
     def __init__(self, state_dim, action_dim, feature_dim):
         super().__init__()
-        # The critic's input is the concatenation of state and action
-        self.l1 = nn.Linear(state_dim + action_dim, 256) # Input layer takes both state and action
-        self.l2 = nn.Linear(256, 256)
+        # Process state independently first
+        self.l1 = nn.Linear(state_dim, 256)
+        self.ln1 = nn.LayerNorm(256) # Normalizes state representations
+        
+        # Inject action at the second layer
+        self.l2 = nn.Linear(256 + action_dim, 256)
         # The output is the feature dimensionality (psi), not a scalar!
         self.l3 = nn.Linear(256, feature_dim)
 
     def forward(self, state, action):
-        q = F.relu(self.l1(torch.cat([state, action], 1)))
-        q = F.relu(self.l2(q))
+        s = F.relu(self.ln1(self.l1(state)))
+        # Concatenate the processed state with the action
+        q = F.relu(self.l2(torch.cat([s, action], 1)))
         # Returns the successor features vector psi(s, a)
         return self.l3(q)
-
 # ---------------------------------------------------------
 # 3. Actor Training Logic (The derivative)
 # ---------------------------------------------------------
@@ -140,21 +153,24 @@ def SFtrain_critic(
 # while they use another encoder network. Here the world is simply given by a hand-made encoding (torques, velocity etc),
 # so we don't need another branch of an NN to optimise phi, we can already craft the optimised one. 
 
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 ############# Baseline: Standard Actor-Critic with Q-value prediction #############
 class QCritic(nn.Module):
     """Standard DDPG critic: outputs a scalar Q-value."""
     def __init__(self, state_dim, action_dim):
         super().__init__()
-        self.l1 = nn.Linear(state_dim + action_dim, 256)
-        self.l2 = nn.Linear(256, 256)
+        # Process state independently first
+        self.l1 = nn.Linear(state_dim, 256)
+        self.ln1 = nn.LayerNorm(256) # Normalizes state representations
+        
+        # Inject action at the second layer
+        self.l2 = nn.Linear(256 + action_dim, 256)
         self.l3 = nn.Linear(256, 1)  # scalar output, not feature_dim
 
     def forward(self, state, action):
-        q = F.relu(self.l1(torch.cat([state, action], 1)))
-        q = F.relu(self.l2(q))
+        s = F.relu(self.ln1(self.l1(state)))
+        # Concatenate the processed state with the action
+        q = F.relu(self.l2(torch.cat([s, action], 1)))
         return self.l3(q)  # returns Q(s,a) directly
-
 # ---------------------------------------------------------
 # 3. Actor Training Logic (The derivative "trick")
 # ---------------------------------------------------------
