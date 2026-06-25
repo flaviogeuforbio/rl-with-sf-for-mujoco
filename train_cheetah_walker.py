@@ -35,7 +35,8 @@ def train_sf_ddpg(
     gamma=0.99,
     walker_only=False,
     resume_dir=None,     # Directory to look for checkpoint
-    save_freq=50000      # How often to save the checkpoint
+    save_freq=50000,      # How often to save the checkpoint
+    run_steps_limit=200000  # Exit cleanly after this many steps without putting the "completed" flag in the checkpoint, to be able to resume from the same phase and step next time
 ):
 
     env_cheetah = gym.make("HalfCheetah-v5")
@@ -274,6 +275,9 @@ def train_sf_ddpg(
                 torch.save(checkpoint, tmp_path)
                 os.replace(tmp_path, ckpt_path)
                 print(f"--> [SAVE] Checkpoint saved at Phase {phase}, Step {step}")
+                if run_steps_limit is not None and (step - start_step + 1) >= run_steps_limit:
+                    print("Chunk limit reached. Exiting safely without closing the phase.")
+                    return returns_history
 
         returns_history.append(episode_returns)
         torch.save(actor.state_dict(), Path(run_dir) / f"sf_actor_{phase}.pth")
@@ -327,7 +331,8 @@ def train_ddpg(
     gamma=0.99, 
     walker_only=False,
     resume_dir=None,    
-    save_freq=50000     
+    save_freq=50000,
+    run_steps_limit=200000     
 ):
 
     env_cheetah = gym.make("HalfCheetah-v5")
@@ -533,6 +538,9 @@ def train_ddpg(
                 torch.save(checkpoint, tmp_path)
                 os.replace(tmp_path, ckpt_path)
                 print(f"--> [SAVE] Checkpoint saved at Phase {phase_idx}, Step {step}")
+                if run_steps_limit is not None and (step - start_step + 1) >= run_steps_limit:
+                    print("Chunk limit reached. Exiting safely without closing the phase.")
+                    return returns_history
 
         returns_history.append(episode_returns)
         torch.save(actor.state_dict(), Path(run_dir) / f"q_actor_{phase_idx}.pth")
@@ -587,6 +595,7 @@ def parse_arg():
     # NEW ARGUMENTS FOR CHECKPOINTING
     parser.add_argument("--resume_dir", type=str, default=None, help="Directory containing .pt checkpoints")
     parser.add_argument("--save_freq", type=int, default=50000, help="Steps between saves")
+    parser.add_argument("--run_steps_limit", type=int, default=200000, help="Exit cleanly after this many steps")
     
     args = parser.parse_args()
     return args
@@ -613,7 +622,8 @@ if __name__ == "__main__":
         gamma=args.gamma,
         walker_only=args.walker_only,
         resume_dir=args.resume_dir,
-        save_freq=args.save_freq
+        save_freq=args.save_freq,
+        run_steps_limit=args.run_steps_limit
     )
     with open(run_dir / "sf_ddpg_returns.json", "w") as f:
         json.dump(SFreturns, f)
@@ -631,7 +641,8 @@ if __name__ == "__main__":
             gamma=args.gamma,
             walker_only=args.walker_only,
             resume_dir=args.resume_dir,
-            save_freq=args.save_freq
+            save_freq=args.save_freq,
+            run_steps_limit=args.run_steps_limit
         )
         with open(run_dir / "ddpg_returns.json", "w") as f:
             json.dump(Qreturns, f)
