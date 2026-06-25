@@ -8,7 +8,6 @@ from copy import deepcopy
 from pathlib import Path
 import json
 import os
-import random
 
 # Import from the previously created file
 from ActorCritic import Actor, SFCritic, SFtrain_actor, SFtrain_critic, QCritic, Qtrain_actor, Qtrain_critic  
@@ -35,7 +34,7 @@ def train_sf_ddpg(
     gamma=0.99,
     walker_only=False,
     resume_dir=None,     # Directory to look for checkpoint
-    save_freq=50000      # How often to save the checkpoint
+    save_freq=10000      # How often to save the checkpoint
 ):
 
     env_cheetah = gym.make("HalfCheetah-v5")
@@ -80,13 +79,6 @@ def train_sf_ddpg(
         sf_critic_target.load_state_dict(checkpoint['sf_critic_target'])
         actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
         critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
-
-        # Explicitly cast optimizer states to device
-        for opt in [actor_optimizer, critic_optimizer]:
-            for opt_state in opt.state.values():
-                for k, v in opt_state.items():
-                    if isinstance(v, torch.Tensor):
-                        opt_state[k] = v.to(device)
         
         saved_phase = checkpoint['phase']
         
@@ -106,56 +98,17 @@ def train_sf_ddpg(
         returns_history = checkpoint['returns_history']
     else:
         returns_history = []
-    
-    # --- If a checkpoint is loaded where the final phase (Walker) is already marked as phase_completed: True,
-    #  The execution must be explicitly terminated. ---
-    if start_phase_idx >= len(phases):
-        print("Training already completed.")
-        env_cheetah.close()
-        env_walker.close()
-        return returns_history
-    # -------------------------
-
-    for p_idx, phase in enumerate(phases):
-        if p_idx < start_phase_idx:
-            continue
-
-        print(f"--- Starting Phase {phase} ({'Cheetah' if phase == 0 else 'Walker'}) ---")
-        env = env_cheetah if phase == 0 else env_walker
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
 
         # ---------------------------------------------------------
         # CHECKPOINT LOADING (Buffer & Iterators)
         # ---------------------------------------------------------
         if p_idx == start_phase_idx and resume_path and resume_path.exists():
             print(f"--> [RESUME] Restoring buffer and iterators at step {checkpoint['step']}")
-           
-            w_param = torch.nn.Parameter(checkpoint['w_param'].clone().to(device))
+            w_param = checkpoint['w_param']
             w_optimizer = optim.Adam([w_param], lr=1e-2)
-
-            # We must not forget to store the pointer ptr to the replay buffer location where the next experience will start from.
             w_optimizer.load_state_dict(checkpoint['w_optimizer'])
-            # Explicitly cast w_optimizer states to device
-            for opt_state in w_optimizer.state.values():
-                for k, v in opt_state.items():
-                    if isinstance(v, torch.Tensor):
-                        opt_state[k] = v.to(device)
-
             replay_buffer.storage = checkpoint['replay_buffer_storage']
-            replay_buffer.ptr = checkpoint.get('replay_buffer_ptr', len(checkpoint['replay_buffer_storage']))
             state = checkpoint['state']
-            
-            # --- Restore RNG (Random Number Generator) States ---
-            np.random.set_state(checkpoint['numpy_rng'])
-            torch.set_rng_state(checkpoint['torch_rng'])
-            random.setstate(checkpoint['python_rng'])
-            if checkpoint.get('cuda_rng') is not None and torch.cuda.is_available():
-                torch.cuda.set_rng_state(checkpoint['cuda_rng'])
-            
-            env.reset(seed=seed)
-            env.unwrapped.set_state(checkpoint['qpos'], checkpoint['qvel'])
-            
             episode_return = checkpoint['episode_return']
             episode_returns = checkpoint['episode_returns']
             start_step = checkpoint['step'] + 1
@@ -166,10 +119,10 @@ def train_sf_ddpg(
             )
             w_optimizer = optim.Adam([w_param], lr=1e-2)
             replay_buffer.clear()
-
-            # Always seed the environment reset, regardless of phase
+            
+            # Fix 9: Always seed the environment reset, regardless of phase
             state, _ = env.reset(seed=seed)
-
+            
             episode_return = 0
             episode_returns = []
             start_step = 0
@@ -253,17 +206,10 @@ def train_sf_ddpg(
                     'sf_critic_target': sf_critic_target.state_dict(),
                     'actor_optimizer': actor_optimizer.state_dict(),
                     'critic_optimizer': critic_optimizer.state_dict(),
-                    'w_param': w_param.detach().cpu(),
+                    'w_param': w_param.data, # Fix 6: Save tensor data, not the Parameter object
                     'w_optimizer': w_optimizer.state_dict(),
                     'replay_buffer_storage': replay_buffer.storage,
-                    'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
                     'state': state,
-                    'qpos': env.unwrapped.data.qpos.copy(),
-                    'qvel': env.unwrapped.data.qvel.copy(),
-                    'numpy_rng': np.random.get_state(),
-                    'torch_rng': torch.get_rng_state(),
-                    'python_rng': random.getstate(),
-                    'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
                     'returns_history': returns_history,
                     'episode_returns': episode_returns,
                     'episode_return': episode_return
@@ -275,6 +221,8 @@ def train_sf_ddpg(
         torch.save(actor.state_dict(), Path(run_dir) / f"sf_actor_{phase}.pth")
         torch.save(sf_critic.state_dict(), Path(run_dir) / f"sf_critic_{phase}.pth")
         
+        # Fix 1 & 2: Explicitly construct the final checkpoint to avoid UnboundLocalError 
+        # and flag the phase as completed to prevent infinite loops on resume.
         final_checkpoint = {
             'phase': phase,
             'phase_completed': True,
@@ -285,17 +233,10 @@ def train_sf_ddpg(
             'sf_critic_target': sf_critic_target.state_dict(),
             'actor_optimizer': actor_optimizer.state_dict(),
             'critic_optimizer': critic_optimizer.state_dict(),
-            'w_param': w_param.detach().cpu(),
+            'w_param': w_param.data,
             'w_optimizer': w_optimizer.state_dict(),
             'replay_buffer_storage': replay_buffer.storage,
-            'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
             'state': state,
-            'qpos': env.unwrapped.data.qpos.copy(),
-            'qvel': env.unwrapped.data.qvel.copy(),
-            'numpy_rng': np.random.get_state(),
-            'torch_rng': torch.get_rng_state(),
-            'python_rng': random.getstate(),
-            'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
             'returns_history': returns_history,
             'episode_returns': episode_returns,
             'episode_return': episode_return
@@ -366,13 +307,6 @@ def train_ddpg(
         q_critic_target.load_state_dict(checkpoint['q_critic_target'])
         actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
         critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
-        # Explicitly cast optimizer states to device
-        for opt in [actor_optimizer, critic_optimizer]:
-            for opt_state in opt.state.values():
-                for k, v in opt_state.items():
-                    if isinstance(v, torch.Tensor):
-                        opt_state[k] = v.to(device)
-
         returns_history = checkpoint['returns_history']
         
         saved_phase = checkpoint['phase_idx']
@@ -385,14 +319,6 @@ def train_ddpg(
             start_phase_idx += 1
     else:
         returns_history = []
-    
-    # --- Check if training is already completed ---
-    if start_phase_idx >= len(tasks):
-        print("Training already completed.")
-        env_cheetah.close()
-        env_walker.close()
-        return returns_history
-    # -------------------------
 
 
     for p_idx, task in enumerate(tasks):
@@ -414,19 +340,7 @@ def train_ddpg(
         if p_idx == start_phase_idx and resume_path and resume_path.exists():
             print(f"--> [RESUME] Restoring buffer and iterators at step {checkpoint['step']}")
             replay_buffer.storage = checkpoint['replay_buffer_storage']
-            replay_buffer.ptr = checkpoint.get('replay_buffer_ptr', len(checkpoint['replay_buffer_storage']))
             state = checkpoint['state']
-            
-            # --- Restore RNG States ---
-            np.random.set_state(checkpoint['numpy_rng'])
-            torch.set_rng_state(checkpoint['torch_rng'])
-            random.setstate(checkpoint['python_rng'])
-            if checkpoint.get('cuda_rng') is not None and torch.cuda.is_available():
-                torch.cuda.set_rng_state(checkpoint['cuda_rng'])
-            
-            env.reset(seed=seed)
-            env.unwrapped.set_state(checkpoint['qpos'], checkpoint['qvel'])
-            
             episode_return = checkpoint['episode_return']
             episode_returns = checkpoint['episode_returns']
             start_step = checkpoint['step'] + 1
@@ -507,14 +421,7 @@ def train_ddpg(
                     'actor_optimizer': actor_optimizer.state_dict(),
                     'critic_optimizer': critic_optimizer.state_dict(),
                     'replay_buffer_storage': replay_buffer.storage,
-                    'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
                     'state': state,
-                    'qpos': env.unwrapped.data.qpos.copy(),
-                    'qvel': env.unwrapped.data.qvel.copy(),
-                    'numpy_rng': np.random.get_state(),
-                    'torch_rng': torch.get_rng_state(),
-                    'python_rng': random.getstate(),
-                    'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
                     'returns_history': returns_history,
                     'episode_returns': episode_returns,
                     'episode_return': episode_return
@@ -538,14 +445,7 @@ def train_ddpg(
             'actor_optimizer': actor_optimizer.state_dict(),
             'critic_optimizer': critic_optimizer.state_dict(),
             'replay_buffer_storage': replay_buffer.storage,
-            'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
             'state': state,
-            'qpos': env.unwrapped.data.qpos.copy(),
-            'qvel': env.unwrapped.data.qvel.copy(),
-            'numpy_rng': np.random.get_state(),
-            'torch_rng': torch.get_rng_state(),
-            'python_rng': random.getstate(),
-            'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
             'returns_history': returns_history,
             'episode_returns': episode_returns,
             'episode_return': episode_return
