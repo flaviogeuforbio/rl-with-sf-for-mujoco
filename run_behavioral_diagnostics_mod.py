@@ -30,7 +30,7 @@ def main():
 
     print(f"Starting behavioral diagnostics for Gamma = {gamma}, Mode = {mode}, Model Type = {model_type}, Phase = {phase}, Task = {task}...")
 
-    for i in range(1, 2):
+    for i in range(2, 4):
 
         # run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
         run_name = f"eval_gamma_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000/seed_{i}"
