@@ -24,13 +24,9 @@ def main():
     gamma = args.gamma
     gamma_str = gamma.replace(".", "_")
     model_type = args.model_type
-    model_type_str = model_type.replace(".", "_")
     mode = args.mode
-    mode_str = mode.replace(".", "_")
     phase = args.phase
-    phase_str = phase.replace(".", "_")
     task = args.task
-    task_str = task.replace(".", "_")
 
 
     print(f"Starting PSI diagnostics for Gamma = {gamma}, Phase = {phase}, Mode = {mode}, Task = {task}...")
