@@ -32,8 +32,8 @@ def main():
 
     for i in range(1, 11):
 
-        # run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
-        run_name = f"eval_gamma_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000/seed_{i}"
+        run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
+        # run_name = f"eval_gamma_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000/seed_{i}"
         dir_path = os.path.join("artifacts", run_name)
         
         if os.path.isdir(dir_path):
