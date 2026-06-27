@@ -61,8 +61,8 @@ def main():
                 "--task", task,
                 "--episodes", str(episodes),
                 "--output_name", output_name,
-                "--render",
-                "--save_timeseries",
+                # "--render",
+                # "--save_timeseries",
 
             ])
         else:
