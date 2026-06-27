@@ -6,7 +6,7 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(description="Run PSI diagnostics across all seeds for a given gamma.")
-    parser.add_argument("gamma", type=str, help="The gamma value to process (e.g., 0.5)")
+    parser.add_argument("--gamma", type=str, help="The gamma value to process (e.g., 0.5)")
     parser.add_argument(
         "--model_type",
         type=str,
@@ -14,9 +14,9 @@ def main():
         default="sf",
         help="PSI diagnostics supporta solamente SF.",
     )
-    parser.add_argument("mode", type=str, default="sf_action_optimization", help="The mode value to process (default: sf_action_optimization)")
-    parser.add_argument("phase", type=str, help="The phase value to process (default: 0)")
-    parser.add_argument("task", type=str, default="backward", help="The task value to process (default: backward)")
+    parser.add_argument("--mode", type=str, default="sf_action_optimization", help="The mode value to process (default: sf_action_optimization)")
+    parser.add_argument("--phase", type=str, help="The phase value to process (default: 0)")
+    parser.add_argument("--task", type=str, default="backward", help="The task value to process (default: backward)")
 
 
     args = parser.parse_args()
