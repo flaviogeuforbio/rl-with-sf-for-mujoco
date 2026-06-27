@@ -649,7 +649,7 @@ def main():
     parser.add_argument("--run_name", type=str, required=True, help="Name of the run directory containing the saved models.")
     parser.add_argument("--env_name", type=str, default="HalfCheetah-v5")
     parser.add_argument("--phase", type=int, default=0, help="0 for Task 1, 1 for Task 2")
-    parser.add_argument("--episodes", type=int, default=5, help="Number of diagnostic episodes to collect.")
+    parser.add_argument("--episodes", type=int, default=20, help="Number of diagnostic episodes to collect.")
     parser.add_argument("--max_episode_steps", type=int, default=1000, help="Maximum steps per diagnostic episode.")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor for computing feature returns.")
 
