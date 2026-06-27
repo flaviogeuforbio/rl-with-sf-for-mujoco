@@ -70,6 +70,9 @@ def train_sf_ddpg(
     start_phase_idx = 0 
     resume_path = Path(resume_dir) / "checkpoint_sf.pt" if resume_dir else None
 
+    if resume_dir is not None and not resume_path.exists():
+        raise FileNotFoundError(f"CRITICAL: resume_dir provided but no checkpoint found at {resume_path}. Aborting to prevent data overwrite.")
+
     if resume_path and resume_path.exists():
         print(f"--> [RESUME] Loading SF networks from {resume_path}")
         # Save the checkpoint with safe device loading
@@ -277,7 +280,7 @@ def train_sf_ddpg(
                 print(f"--> [SAVE] Checkpoint saved at Phase {phase}, Step {step}")
                 if run_steps_limit is not None and (step - start_step + 1) >= run_steps_limit:
                     print("Chunk limit reached. Exiting safely without closing the phase.")
-                    return returns_history
+                    return returns_history + [episode_returns]
 
         returns_history.append(episode_returns)
         torch.save(actor.state_dict(), Path(run_dir) / f"sf_actor_{phase}.pth")
@@ -369,6 +372,9 @@ def train_ddpg(
     # ---------------------------------------------------------
     start_phase_idx = 0
     resume_path = Path(resume_dir) / "checkpoint_q.pt" if resume_dir else None
+
+    if resume_dir is not None and not resume_path.exists():
+        raise FileNotFoundError(f"CRITICAL: resume_dir provided but no checkpoint found at {resume_path}. Aborting to prevent data overwrite.")
 
     if resume_path and resume_path.exists():
         print(f"--> [RESUME] Loading Q networks from {resume_path}")
@@ -540,7 +546,7 @@ def train_ddpg(
                 print(f"--> [SAVE] Checkpoint saved at Phase {phase_idx}, Step {step}")
                 if run_steps_limit is not None and (step - start_step + 1) >= run_steps_limit:
                     print("Chunk limit reached. Exiting safely without closing the phase.")
-                    return returns_history
+                    return returns_history + [episode_returns]
 
         returns_history.append(episode_returns)
         torch.save(actor.state_dict(), Path(run_dir) / f"q_actor_{phase_idx}.pth")
