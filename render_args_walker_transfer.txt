@@ -1,0 +1,12 @@
+--run_dir
+C:\Users\mauro\Documents\RLProject\rl-with-sf-for-mujoco\artifacts\transfer_learning_long_run\4Msteps_run\Walker_transfer_gamma_0_99_lq_1_0_lvec_1_0_stepsxphase_4000000\seed_1
+--env_name
+Walker2d-v5
+--model_type
+sf
+--phase
+1
+--fps
+30
+--max_steps
+1000
