@@ -184,27 +184,34 @@ def train_sf_ddpg(
             start_step = 0
             critic_loss_val = q_loss_val = vec_loss_val = 0.0
 
-        for step in range(start_step, steps_per_phase):
+        for step in range(start_step, steps_per_phase): # Actual training loop
 
             if len(replay_buffer.storage) < WARMUP_STEPS:
-                action = env.action_space.sample() 
+                action = env.action_space.sample() # random actions to populate the replay buffer during warmup
             else:
                 state_tensor = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
                 with torch.no_grad():
-                    action = actor(state_tensor).cpu().numpy()[0]
-                noise = np.random.normal(0, 0.1, size=action_dim)
-                action = (action + noise).clip(-max_action, max_action)
-
+                    action = actor(state_tensor).cpu().numpy()[0] # actor performs a deterministic action based on the current state
+                noise = np.random.normal(0, 0.1, size=action_dim) # noise is injected
+                action = (action + noise).clip(-max_action, max_action) # action is clipped to the action space bounds
+            # feed the action to the environment and get the next state, reward, and done signal
             next_state, _, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
+            # ----- FEATURE VECTOR ------
+            # extract physical quantities from the environment:
+            # they'll be the 4 components of the feature vector phi 
+            # (we hardcode which variables are relevant, i.e. what to measure from the environment;
+            # the network learns the relative importance of each feature 
+            # via the weight vector w_param)
             velocity = info.get("x_velocity", 0.0)
             pos_fwd_vel = max(velocity, 0.0)
             pos_bwd_vel = max(-velocity, 0.0)
             ctrl_reward = info.get("reward_ctrl", 0.0)
-            survive_reward = info.get("reward_survive", 0.0)  # FIX: 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
-
-            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)  # FIX: now 4-dim
+            survive_reward = info.get("reward_survive", 0.0)  # 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
+            # NOTE: .get(key, default_value): This is a built-in Python function for dictionaries. It asks Python to search the dictionary for a specific key. If the key exists, it returns the associated value. If the key does not exist, it returns the provided default_value
+            
+            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)
             true_reward = pos_fwd_vel + ctrl_reward + survive_reward  # FIX: was missing survive_reward
             episode_return += true_reward
 
@@ -215,9 +222,17 @@ def train_sf_ddpg(
                 batch_states, batch_actions, batch_phis, batch_next_states, batch_term = replay_buffer.sample(batch_size)
 
                 with torch.no_grad():
-                    batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3] + batch_phis[:, 3:4]  # FIX: added survive term (index 3)
-
+                    batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3] + batch_phis[:, 3:4]  # survive term is in index 3
+                    # r_true = pos_fwd_vel + ctrl_reward + survive_reward 
+                    
+                    # notice that the backward velocity (index 1) is not included in the true 
+                    # reward since we want to train the agent to move forward, not backward. 
+                    # In case we want to teach to move bacward, we would include the 
+                    # backward velocity in the true reward and omit the forward velocity.
+                
                 predicted_rewards = torch.matmul(batch_phis, w_param)
+                # \hat{r} = w*phi ; we estimate the true reward as a linear combination of the features, weighted by w_param (linear regression) 
+                
                 w_loss = F.mse_loss(predicted_rewards, batch_true_rewards)
 
                 w_optimizer.zero_grad()
@@ -252,7 +267,7 @@ def train_sf_ddpg(
             # ---------------------------------------------------------
             # CHECKPOINT SAVE LOGIC
             # ---------------------------------------------------------
-            if step > 0 and step % save_freq == 0:
+            if step > 0 and step % save_freq == 0: # save checkpoint every save_freq steps
                 checkpoint = {
                     'phase': phase,
                     'phase_completed': False,
@@ -363,8 +378,12 @@ def train_ddpg(
 
     replay_buffer = ReplayBuffer()
 
-    w_forward = torch.tensor([[1.0], [0.0], [1.0], [1.0]], dtype=torch.float32, device=device)  # FIX: 4th weight (=1.0) for the survive feature
-
+    # here w is not a learned parameter: in standard ddpg training happens exclusively on the true reward, which is a scalar. The feature vector phi is not used in the DDPG baseline.
+    # we define a dummy w_forward vector for the sake of consistency with the SF-DDPG code; it is only used to select which physical quantities should enter into the scalar reward.
+    w_forward = torch.tensor([[1.0], [0.0], [1.0], [1.0]], dtype=torch.float32, device=device)  # 4th weight (=1.0) for the survive feature
+    # NOTE: we don't need two separate w_param vectors for Cheetah and Walker, since we'll use the .get("reward_survive",0) method to extract the reward survive;
+    # for Cheetah it will be 0.0 (key absent), for Walker it will be +1.0/step while upright. So it is ok to have always 1 as 4th component: 
+    # for the cheetah it will get 1*0 = 0 , so that term won't enter into the scalar reward, as it should be. 
     if walker_only:
         tasks = [{"name": "Task 2 (Walker Forward) from Scratch", "w": w_forward, "phase_idx": 1}]
     else:
@@ -461,7 +480,7 @@ def train_ddpg(
         else:
             replay_buffer.clear()
             
-            # Fix 9: Always seed the environment reset, regardless of phase
+            # Always seed the environment reset, regardless of phase
             state, _ = env.reset(seed=seed)
             
             episode_return = 0
@@ -483,14 +502,20 @@ def train_ddpg(
             next_state, _, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
+            # extract relevant physical quantities from the environment to form the feature vector phi
+            # hardcoded, the network learns the relative importance of each feature via the weight vector w_current
             velocity = info.get("x_velocity", 0.0)
             pos_fwd_vel = max(velocity, 0.0)
             pos_bwd_vel = max(-velocity, 0.0)
             ctrl_reward = info.get("reward_ctrl", 0.0)
-            survive_reward = info.get("reward_survive", 0.0)  # FIX: 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
+            survive_reward = info.get("reward_survive", 0.0)  # 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
 
             phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)  # FIX: now 4-dim, matches w_forward
             scalar_reward = float(phi @ w_current.detach().cpu().numpy().flatten())
+            # here we use the standard @ numpy operator for matrix multiplication, since we don't need to backpropagate through the reward computation (it's just a scalar for logging and training the critic)
+            # w is simply used to select which physical quantities should enter into the scalar reward. We could have omitted it and used the true reward directly, but we keep it for consistency with the SF-DDPG code.
+            # and also, it is more elegant if one needs then to change the task (e.g. moving backward):
+            # instead of commenting the undesired features, we can change a component of the w vector, or we can design different w vectors for different tasks, and this block of code remains unchanged.
             episode_return += scalar_reward
 
             replay_buffer.add(state, action, phi, next_state, float(terminated))
