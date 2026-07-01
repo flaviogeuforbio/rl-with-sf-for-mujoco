@@ -45,7 +45,7 @@ def train_sf_ddpg(
     state_dim = env_cheetah.observation_space.shape[0]
     action_dim = env_cheetah.action_space.shape[0]
     max_action = float(env_cheetah.action_space.high[0])
-    feature_dim = 3 
+    feature_dim = 4  # FIX: was 3 -- added a 4th feature for Walker2d's "survive" bonus (see below)
 
     actor = Actor(state_dim, action_dim, max_action).to(device)
     actor_target = deepcopy(actor).to(device)
@@ -132,7 +132,12 @@ def train_sf_ddpg(
         # ---------------------------------------------------------
         # CHECKPOINT LOADING (Buffer & Iterators)
         # ---------------------------------------------------------
-        if p_idx == start_phase_idx and resume_path and resume_path.exists():
+        if p_idx == start_phase_idx and resume_path and resume_path.exists() and not checkpoint.get('phase_completed', False):
+            # FIX: added "not checkpoint.get('phase_completed', False)" -- without it, moving from a
+            # just-finished phase into the next one was wrongly treated as a mid-phase resume: it reused
+            # the old phase's replay buffer/qpos/episode_returns, and computed start_step = old_step+1,
+            # which (since old_step already == steps_per_phase) made range(start_step, steps_per_phase)
+            # EMPTY -- the new phase silently ran zero training steps and saved a fake "completed" checkpoint.
             print(f"--> [RESUME] Restoring buffer and iterators at step {checkpoint['step']}")
            
             w_param = torch.nn.Parameter(checkpoint['w_param'].clone().to(device))
@@ -197,9 +202,10 @@ def train_sf_ddpg(
             pos_fwd_vel = max(velocity, 0.0)
             pos_bwd_vel = max(-velocity, 0.0)
             ctrl_reward = info.get("reward_ctrl", 0.0)
+            survive_reward = info.get("reward_survive", 0.0)  # FIX: 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
 
-            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward], dtype=np.float32)
-            true_reward = pos_fwd_vel + ctrl_reward
+            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)  # FIX: now 4-dim
+            true_reward = pos_fwd_vel + ctrl_reward + survive_reward  # FIX: was missing survive_reward
             episode_return += true_reward
 
             replay_buffer.add(state, action, phi, next_state, float(terminated))
@@ -209,7 +215,7 @@ def train_sf_ddpg(
                 batch_states, batch_actions, batch_phis, batch_next_states, batch_term = replay_buffer.sample(batch_size)
 
                 with torch.no_grad():
-                    batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3]
+                    batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3] + batch_phis[:, 3:4]  # FIX: added survive term (index 3)
 
                 predicted_rewards = torch.matmul(batch_phis, w_param)
                 w_loss = F.mse_loss(predicted_rewards, batch_true_rewards)
@@ -357,7 +363,7 @@ def train_ddpg(
 
     replay_buffer = ReplayBuffer()
 
-    w_forward = torch.tensor([[1.0], [0.0], [1.0]], dtype=torch.float32, device=device)
+    w_forward = torch.tensor([[1.0], [0.0], [1.0], [1.0]], dtype=torch.float32, device=device)  # FIX: 4th weight (=1.0) for the survive feature
 
     if walker_only:
         tasks = [{"name": "Task 2 (Walker Forward) from Scratch", "w": w_forward, "phase_idx": 1}]
@@ -430,7 +436,9 @@ def train_ddpg(
         # ---------------------------------------------------------
         # CHECKPOINT LOAD LOGIC (Buffer & Iterators)
         # ---------------------------------------------------------
-        if p_idx == start_phase_idx and resume_path and resume_path.exists():
+        if p_idx == start_phase_idx and resume_path and resume_path.exists() and not checkpoint.get('phase_completed', False):
+            # FIX: see matching comment in train_sf_ddpg -- prevents Phase 1 from silently
+            # inheriting Phase 0's buffer/qpos/episode_returns and running zero training steps.
             print(f"--> [RESUME] Restoring buffer and iterators at step {checkpoint['step']}")
             replay_buffer.storage = checkpoint['replay_buffer_storage']
             replay_buffer.ptr = checkpoint.get('replay_buffer_ptr', len(checkpoint['replay_buffer_storage']))
@@ -479,8 +487,9 @@ def train_ddpg(
             pos_fwd_vel = max(velocity, 0.0)
             pos_bwd_vel = max(-velocity, 0.0)
             ctrl_reward = info.get("reward_ctrl", 0.0)
+            survive_reward = info.get("reward_survive", 0.0)  # FIX: 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
 
-            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward], dtype=np.float32)
+            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)  # FIX: now 4-dim, matches w_forward
             scalar_reward = float(phi @ w_current.detach().cpu().numpy().flatten())
             episode_return += scalar_reward
 
