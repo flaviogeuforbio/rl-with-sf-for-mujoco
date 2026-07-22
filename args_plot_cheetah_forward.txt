@@ -1,0 +1,13 @@
+--plot_cheetah
+--seq_dir
+C:\Users\fusil\Desktop\RL PROJECT\rl-with-sf-for-mujoco\artifacts\completed_checkpoints_cheetah_forward
+--steps
+4000000
+--lambda_q
+1.0
+--lambda_vec
+1.0
+--gamma
+0.99
+--window_size
+20
