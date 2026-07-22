@@ -1,9 +1,6 @@
---plot_cheetah
---plot_walker
---seq_dir
-C:\Users\fusil\Desktop\RL PROJECT\rl-with-sf-for-mujoco\artifacts\completed_checkpoints_cheetah_and_walker\transfer
---scratch_dir
-C:\Users\fusil\Desktop\RL PROJECT\rl-with-sf-for-mujoco\artifacts\completed_checkpoints_cheetah_and_walker\scratch
+--plot_combined
+--completed_root
+C:\Users\fusil\Desktop\RL PROJECT\rl-with-sf-for-mujoco\artifacts\completed_checkpoints_cheetah_and_walker
 --steps
 4000000
 --lambda_q
@@ -14,3 +11,5 @@ C:\Users\fusil\Desktop\RL PROJECT\rl-with-sf-for-mujoco\artifacts\completed_chec
 0.99
 --window_size
 20
+--main_title
+HalfCheetah to Walker2d Transfer
