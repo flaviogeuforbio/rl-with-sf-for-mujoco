@@ -10,6 +10,6 @@ C:\Users\fusil\Desktop\RL PROJECT\rl-with-sf-for-mujoco\artifacts\completed_chec
 --gamma
 0.99
 --window_size
-20
+200
 --main_title
 HalfCheetah to Walker2d Transfer
