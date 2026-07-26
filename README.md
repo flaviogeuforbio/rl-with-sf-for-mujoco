@@ -1,4 +1,4 @@
-This branch contains the Walker2d task implementation using checkpointing, designed to be executed via Kaggle notebooks. The main script is `train_cheetah_walker.py`. The alternative script `survive_reward_train_cheetah_walker.py` implements the same task and checkpointing logic using 4D features, allowing for direct experimental comparison between the two representations.
+This branch contains the Walker2d task implementation using checkpointing, designed to be executed via Kaggle notebooks. The main script is `train_cheetah_walker.py`. The alternative script `survive_reward_train_cheetah_walker.py` implements the same task and checkpointing logic using 4D features, allowing for a comparison between the two representations, replicating the same experiment described in the report with the latter script.
 
 ## Reproducibility and Training
 
