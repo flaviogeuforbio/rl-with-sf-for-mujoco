@@ -1,0 +1,688 @@
+import gymnasium as gym
+import numpy as np
+import torch
+import torch.nn.functional as F
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from copy import deepcopy
+from pathlib import Path
+import json
+import os
+import random
+
+# Import from the previously created file
+from ActorCritic import Actor, SFCritic, SFtrain_actor, SFtrain_critic, QCritic, Qtrain_actor, Qtrain_critic  
+from utils import ReplayBuffer, soft_update, plot_results, evaluate_zero_shot_transfer_learning_sf, set_seed
+
+WARMUP_STEPS = 1000  
+
+# ---------------------------------------------------------
+# Device Setup
+# ---------------------------------------------------------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# ---------------------------------------------------------
+# Main Training Loop (SF-DDPG)
+# ---------------------------------------------------------
+def train_sf_ddpg(
+    run_dir: Path | str,
+    steps_per_phase=50000,
+    batch_size=64,
+    lambda_q=1.0,
+    lambda_vec=0.05,
+    seed=42, 
+    gamma=0.99,
+    walker_only=False,
+    resume_dir=None,     # Directory to look for checkpoint
+    save_freq=50000,      # How often to save the checkpoint
+    run_steps_limit=200000  # Exit cleanly after this many steps without putting the "completed" flag in the checkpoint, to be able to resume from the same phase and step next time
+):
+
+    env_cheetah = gym.make("HalfCheetah-v5")
+    env_walker = gym.make("Walker2d-v5")
+
+    state_dim = env_cheetah.observation_space.shape[0]
+    action_dim = env_cheetah.action_space.shape[0]
+    max_action = float(env_cheetah.action_space.high[0])
+    feature_dim = 4  # FIX: was 3 -- added a 4th feature for Walker2d's "survive" bonus (see below)
+
+    actor = Actor(state_dim, action_dim, max_action).to(device)
+    actor_target = deepcopy(actor).to(device)
+    actor_target.eval()
+    actor_optimizer = optim.Adam(actor.parameters(), lr=1e-3)
+
+    sf_critic = SFCritic(state_dim, action_dim, feature_dim).to(device)
+    sf_critic_target = deepcopy(sf_critic).to(device)
+    sf_critic_target.eval()  
+    critic_optimizer = optim.Adam(sf_critic.parameters(), lr=1e-3)
+
+    replay_buffer = ReplayBuffer()
+
+    if walker_only:
+        phases = [1]  
+    else:
+        phases = [0, 1]  
+
+    # ---------------------------------------------------------
+    # CHECKPOINT LOADING (Networks)
+    # ---------------------------------------------------------
+    start_phase_idx = 0 
+    resume_path = Path(resume_dir) / "checkpoint_sf.pt" if resume_dir else None
+
+    if resume_dir is not None and not resume_path.exists():
+        raise FileNotFoundError(f"CRITICAL: resume_dir provided but no checkpoint found at {resume_path}. Aborting to prevent data overwrite.")
+
+    if resume_path and resume_path.exists():
+        print(f"--> [RESUME] Loading SF networks from {resume_path}")
+        # Save the checkpoint with safe device loading
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False) # this contains the state_dicts for actor, sf_critic, their targets, optimizers, and other training states
+        
+        actor.load_state_dict(checkpoint['actor'])
+        sf_critic.load_state_dict(checkpoint['sf_critic'])
+        actor_target.load_state_dict(checkpoint['actor_target'])
+        sf_critic_target.load_state_dict(checkpoint['sf_critic_target'])
+        actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
+        critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
+
+        # Explicitly cast optimizer states to device
+        for opt in [actor_optimizer, critic_optimizer]:
+            for opt_state in opt.state.values():
+                for k, v in opt_state.items():
+                    if isinstance(v, torch.Tensor):
+                        opt_state[k] = v.to(device)
+        
+        saved_phase = checkpoint['phase']
+        
+        # Very Important: we need to set the starting phase index based on the checkpoint's phase.
+        # This is because if we are resuming from a checkpoint that was saved during the Walker task, we want to skip the Cheetah task and start directly from the Walker task.
+
+        # Handle walker_only mismatch
+        if saved_phase in phases:
+            start_phase_idx = phases.index(saved_phase)
+        else:
+            start_phase_idx = 0
+            
+        # If the loaded checkpoint was saved at the exact end of a phase, advance to the next task
+        if checkpoint.get('phase_completed', False):
+            start_phase_idx += 1
+            
+        returns_history = checkpoint['returns_history']
+    else:
+        returns_history = []
+    
+    # --- If a checkpoint is loaded where the final phase (Walker) is already marked as phase_completed: True,
+    #  The execution must be explicitly terminated. ---
+    if start_phase_idx >= len(phases):
+        print("Training already completed.")
+        env_cheetah.close()
+        env_walker.close()
+        return returns_history
+    # -------------------------
+
+    for p_idx, phase in enumerate(phases):
+        if p_idx < start_phase_idx:
+            continue
+
+        print(f"--- Starting Phase {phase} ({'Cheetah' if phase == 0 else 'Walker'}) ---")
+        env = env_cheetah if phase == 0 else env_walker
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+
+        # ---------------------------------------------------------
+        # CHECKPOINT LOADING (Buffer & Iterators)
+        # ---------------------------------------------------------
+        if p_idx == start_phase_idx and resume_path and resume_path.exists() and not checkpoint.get('phase_completed', False):
+            # FIX: added "not checkpoint.get('phase_completed', False)" -- without it, moving from a
+            # just-finished phase into the next one was wrongly treated as a mid-phase resume: it reused
+            # the old phase's replay buffer/qpos/episode_returns, and computed start_step = old_step+1,
+            # which (since old_step already == steps_per_phase) made range(start_step, steps_per_phase)
+            # EMPTY -- the new phase silently ran zero training steps and saved a fake "completed" checkpoint.
+            print(f"--> [RESUME] Restoring buffer and iterators at step {checkpoint['step']}")
+           
+            w_param = torch.nn.Parameter(checkpoint['w_param'].clone().to(device))
+            w_optimizer = optim.Adam([w_param], lr=1e-2)
+
+            # We must not forget to store the pointer ptr to the replay buffer location where the next experience will start from.
+            w_optimizer.load_state_dict(checkpoint['w_optimizer'])
+            # Explicitly cast w_optimizer states to device
+            for opt_state in w_optimizer.state.values():
+                for k, v in opt_state.items():
+                    if isinstance(v, torch.Tensor):
+                        opt_state[k] = v.to(device)
+
+            replay_buffer.storage = checkpoint['replay_buffer_storage']
+            replay_buffer.ptr = checkpoint.get('replay_buffer_ptr', len(checkpoint['replay_buffer_storage']))
+            state = checkpoint['state']
+            
+            # --- Restore RNG (Random Number Generator) States ---
+            np.random.set_state(checkpoint['numpy_rng'])
+            torch.set_rng_state(checkpoint['torch_rng'].cpu().to(torch.uint8))
+            random.setstate(checkpoint['python_rng'])
+            if checkpoint.get('cuda_rng') is not None and torch.cuda.is_available():
+                torch.cuda.set_rng_state(checkpoint['cuda_rng'].cpu().to(torch.uint8))
+            
+            env.reset(seed=seed)
+            env.unwrapped.set_state(checkpoint['qpos'], checkpoint['qvel'])
+            
+            episode_return = checkpoint['episode_return']
+            episode_returns = checkpoint['episode_returns']
+            start_step = checkpoint['step'] + 1
+            critic_loss_val = q_loss_val = vec_loss_val = 0.0
+        else:
+            w_param = torch.nn.Parameter(
+                torch.rand(feature_dim, 1, dtype=torch.float32, device=device) * 0.1
+            )
+            w_optimizer = optim.Adam([w_param], lr=1e-2)
+            replay_buffer.clear()
+
+            # Always seed the environment reset, regardless of phase
+            state, _ = env.reset(seed=seed)
+
+            episode_return = 0
+            episode_returns = []
+            start_step = 0
+            critic_loss_val = q_loss_val = vec_loss_val = 0.0
+
+        for step in range(start_step, steps_per_phase): # Actual training loop
+
+            if len(replay_buffer.storage) < WARMUP_STEPS:
+                action = env.action_space.sample() # random actions to populate the replay buffer during warmup
+            else:
+                state_tensor = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+                with torch.no_grad():
+                    action = actor(state_tensor).cpu().numpy()[0] # actor performs a deterministic action based on the current state
+                noise = np.random.normal(0, 0.1, size=action_dim) # noise is injected
+                action = (action + noise).clip(-max_action, max_action) # action is clipped to the action space bounds
+            # feed the action to the environment and get the next state, reward, and done signal
+            next_state, _, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+
+            # ----- FEATURE VECTOR ------
+            # extract physical quantities from the environment:
+            # they'll be the 4 components of the feature vector phi 
+            # (we hardcode which variables are relevant, i.e. what to measure from the environment;
+            # the network learns the relative importance of each feature 
+            # via the weight vector w_param)
+            velocity = info.get("x_velocity", 0.0)
+            pos_fwd_vel = max(velocity, 0.0)
+            pos_bwd_vel = max(-velocity, 0.0)
+            ctrl_reward = info.get("reward_ctrl", 0.0)
+            survive_reward = info.get("reward_survive", 0.0)  # 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
+            # NOTE: .get(key, default_value): This is a built-in Python function for dictionaries. It asks Python to search the dictionary for a specific key. If the key exists, it returns the associated value. If the key does not exist, it returns the provided default_value
+            
+            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)
+            true_reward = pos_fwd_vel + ctrl_reward + survive_reward  # FIX: was missing survive_reward
+            episode_return += true_reward
+
+            replay_buffer.add(state, action, phi, next_state, float(terminated))
+            state = next_state
+
+            if len(replay_buffer.storage) >= WARMUP_STEPS:
+                batch_states, batch_actions, batch_phis, batch_next_states, batch_term = replay_buffer.sample(batch_size)
+
+                with torch.no_grad():
+                    batch_true_rewards = batch_phis[:, 0:1] + batch_phis[:, 2:3] + batch_phis[:, 3:4]  # survive term is in index 3
+                    # r_true = pos_fwd_vel + ctrl_reward + survive_reward 
+                    
+                    # notice that the backward velocity (index 1) is not included in the true 
+                    # reward since we want to train the agent to move forward, not backward. 
+                    # In case we want to teach to move bacward, we would include the 
+                    # backward velocity in the true reward and omit the forward velocity.
+                
+                predicted_rewards = torch.matmul(batch_phis, w_param)
+                # \hat{r} = w*phi ; we estimate the true reward as a linear combination of the features, weighted by w_param (linear regression) 
+                
+                w_loss = F.mse_loss(predicted_rewards, batch_true_rewards)
+
+                w_optimizer.zero_grad()
+                w_loss.backward()
+                w_optimizer.step()
+
+                learned_w = w_param.detach()
+
+                critic_loss_val, q_loss_val, vec_loss_val = SFtrain_critic(
+                    sf_critic, sf_critic_target, learned_w, actor_target,
+                    batch_states, batch_actions, batch_phis, batch_next_states,
+                    batch_term, critic_optimizer, lambda_q=lambda_q, 
+                    lambda_vec=lambda_vec, gamma=gamma
+                )
+
+                SFtrain_actor(actor, sf_critic, learned_w, batch_states, actor_optimizer)
+
+                soft_update(sf_critic_target, sf_critic)
+                soft_update(actor_target, actor)
+
+            if done:
+                state, _ = env.reset()
+                episode_returns.append(float(episode_return))
+                episode_return = 0
+
+                if len(episode_returns) % 10 == 0:
+                    avg_ret = np.mean(episode_returns[-10:])
+                    print(f"Step: {step} | Episodes: {len(episode_returns)} | "
+                          f"Avg Return: {avg_ret:.2f} | C Loss: {critic_loss_val:.4f} | "
+                          f"Q Loss: {q_loss_val:.4f} | Vec Loss: {vec_loss_val:.4f}")
+
+            # ---------------------------------------------------------
+            # CHECKPOINT SAVE LOGIC
+            # ---------------------------------------------------------
+            if step > 0 and step % save_freq == 0: # save checkpoint every save_freq steps
+                checkpoint = {
+                    'phase': phase,
+                    'phase_completed': False,
+                    'step': step,
+                    'actor': actor.state_dict(),
+                    'sf_critic': sf_critic.state_dict(),
+                    'actor_target': actor_target.state_dict(),
+                    'sf_critic_target': sf_critic_target.state_dict(),
+                    'actor_optimizer': actor_optimizer.state_dict(),
+                    'critic_optimizer': critic_optimizer.state_dict(),
+                    'w_param': w_param.detach().cpu(),
+                    'w_optimizer': w_optimizer.state_dict(),
+                    'replay_buffer_storage': replay_buffer.storage,
+                    'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
+                    'state': state,
+                    'qpos': env.unwrapped.data.qpos.copy(),
+                    'qvel': env.unwrapped.data.qvel.copy(),
+                    'numpy_rng': np.random.get_state(),
+                    'torch_rng': torch.get_rng_state(),
+                    'python_rng': random.getstate(),
+                    'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+                    'returns_history': returns_history,
+                    'episode_returns': episode_returns,
+                    'episode_return': episode_return
+                }
+                # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+                tmp_path = Path(run_dir) / "checkpoint_sf.tmp"
+                ckpt_path = Path(run_dir) / "checkpoint_sf.pt"
+                torch.save(checkpoint, tmp_path)
+                os.replace(tmp_path, ckpt_path)
+                print(f"--> [SAVE] Checkpoint saved at Phase {phase}, Step {step}")
+                if run_steps_limit is not None and (step - start_step + 1) >= run_steps_limit:
+                    print("Chunk limit reached. Exiting safely without closing the phase.")
+                    return returns_history + [episode_returns]
+
+        returns_history.append(episode_returns)
+        torch.save(actor.state_dict(), Path(run_dir) / f"sf_actor_{phase}.pth")
+        torch.save(sf_critic.state_dict(), Path(run_dir) / f"sf_critic_{phase}.pth")
+        
+        final_checkpoint = {
+            'phase': phase,
+            'phase_completed': True,
+            'step': steps_per_phase,
+            'actor': actor.state_dict(),
+            'sf_critic': sf_critic.state_dict(),
+            'actor_target': actor_target.state_dict(),
+            'sf_critic_target': sf_critic_target.state_dict(),
+            'actor_optimizer': actor_optimizer.state_dict(),
+            'critic_optimizer': critic_optimizer.state_dict(),
+            'w_param': w_param.detach().cpu(),
+            'w_optimizer': w_optimizer.state_dict(),
+            'replay_buffer_storage': replay_buffer.storage,
+            'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
+            'state': state,
+            'qpos': env.unwrapped.data.qpos.copy(),
+            'qvel': env.unwrapped.data.qvel.copy(),
+            'numpy_rng': np.random.get_state(),
+            'torch_rng': torch.get_rng_state(),
+            'python_rng': random.getstate(),
+            'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+            'returns_history': returns_history,
+            'episode_returns': episode_returns,
+            'episode_return': episode_return
+        }
+        # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+        tmp_path = Path(run_dir) / "checkpoint_sf.tmp"
+        ckpt_path = Path(run_dir) / "checkpoint_sf.pt"
+        torch.save(final_checkpoint, tmp_path)
+        os.replace(tmp_path, ckpt_path)
+
+    env_cheetah.close()
+    env_walker.close()
+    
+    return returns_history
+
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+# DDPG Baseline (for comparison)
+# ---------------------------------------------------------
+def train_ddpg(
+    run_dir: Path | str,
+    steps_per_phase=50000,
+    batch_size=64,
+    seed=42, 
+    gamma=0.99, 
+    walker_only=False,
+    resume_dir=None,    
+    save_freq=50000,
+    run_steps_limit=200000     
+):
+
+    env_cheetah = gym.make("HalfCheetah-v5")
+    env_walker = gym.make("Walker2d-v5")
+
+    state_dim = env_cheetah.observation_space.shape[0]
+    action_dim = env_cheetah.action_space.shape[0]
+    max_action = float(env_cheetah.action_space.high[0])
+
+    actor = Actor(state_dim, action_dim, max_action).to(device)
+    actor_target = deepcopy(actor).to(device)
+    actor_target.eval()
+    actor_optimizer = optim.Adam(actor.parameters(), lr=1e-3)
+
+    q_critic = QCritic(state_dim, action_dim).to(device)
+    q_critic_target = deepcopy(q_critic).to(device)
+    q_critic_target.eval() 
+    critic_optimizer = optim.Adam(q_critic.parameters(), lr=1e-3)
+
+    replay_buffer = ReplayBuffer()
+
+    # here w is not a learned parameter: in standard ddpg training happens exclusively on the true reward, which is a scalar. The feature vector phi is not used in the DDPG baseline.
+    # we define a dummy w_forward vector for the sake of consistency with the SF-DDPG code; it is only used to select which physical quantities should enter into the scalar reward.
+    w_forward = torch.tensor([[1.0], [0.0], [1.0], [1.0]], dtype=torch.float32, device=device)  # 4th weight (=1.0) for the survive feature
+    # NOTE: we don't need two separate w_param vectors for Cheetah and Walker, since we'll use the .get("reward_survive",0) method to extract the reward survive;
+    # for Cheetah it will be 0.0 (key absent), for Walker it will be +1.0/step while upright. So it is ok to have always 1 as 4th component: 
+    # for the cheetah it will get 1*0 = 0 , so that term won't enter into the scalar reward, as it should be. 
+    if walker_only:
+        tasks = [{"name": "Task 2 (Walker Forward) from Scratch", "w": w_forward, "phase_idx": 1}]
+    else:
+        tasks = [
+            {"name": "Task 1 (Cheetah Forward)", "w": w_forward, "phase_idx": 0},
+            {"name": "Task 2 (Walker Forward)", "w": w_forward, "phase_idx": 1}
+        ]
+
+    # ---------------------------------------------------------
+    # CHECKPOINT LOAD LOGIC (Networks)
+    # ---------------------------------------------------------
+    start_phase_idx = 0
+    resume_path = Path(resume_dir) / "checkpoint_q.pt" if resume_dir else None
+
+    if resume_dir is not None and not resume_path.exists():
+        raise FileNotFoundError(f"CRITICAL: resume_dir provided but no checkpoint found at {resume_path}. Aborting to prevent data overwrite.")
+
+    if resume_path and resume_path.exists():
+        print(f"--> [RESUME] Loading Q networks from {resume_path}")
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False) # this contains the state_dicts for actor, q_critic, their targets, optimizers, and other training states
+        actor.load_state_dict(checkpoint['actor'])
+        q_critic.load_state_dict(checkpoint['q_critic'])
+        actor_target.load_state_dict(checkpoint['actor_target'])
+        q_critic_target.load_state_dict(checkpoint['q_critic_target'])
+        actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
+        critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
+        # Explicitly cast optimizer states to device
+        for opt in [actor_optimizer, critic_optimizer]:
+            for opt_state in opt.state.values():
+                for k, v in opt_state.items():
+                    if isinstance(v, torch.Tensor):
+                        opt_state[k] = v.to(device)
+
+        returns_history = checkpoint['returns_history']
+        
+        saved_phase = checkpoint['phase_idx']
+        for i, t in enumerate(tasks):
+            if t['phase_idx'] == saved_phase:
+                start_phase_idx = i
+                break
+                
+        if checkpoint.get('phase_completed', False):
+            start_phase_idx += 1
+    else:
+        returns_history = []
+    
+    # --- Check if training is already completed ---
+    if start_phase_idx >= len(tasks):
+        print("Training already completed.")
+        env_cheetah.close()
+        env_walker.close()
+        return returns_history
+    # -------------------------
+
+
+    for p_idx, task in enumerate(tasks):
+        if p_idx < start_phase_idx:
+            continue
+
+        print(f"--- Starting {task['name']} ---")
+
+        w_current = task["w"]
+        phase_idx = task["phase_idx"]
+
+        env = env_cheetah if phase_idx == 0 else env_walker
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+
+        # ---------------------------------------------------------
+        # CHECKPOINT LOAD LOGIC (Buffer & Iterators)
+        # ---------------------------------------------------------
+        if p_idx == start_phase_idx and resume_path and resume_path.exists() and not checkpoint.get('phase_completed', False):
+            # FIX: see matching comment in train_sf_ddpg -- prevents Phase 1 from silently
+            # inheriting Phase 0's buffer/qpos/episode_returns and running zero training steps.
+            print(f"--> [RESUME] Restoring buffer and iterators at step {checkpoint['step']}")
+            replay_buffer.storage = checkpoint['replay_buffer_storage']
+            replay_buffer.ptr = checkpoint.get('replay_buffer_ptr', len(checkpoint['replay_buffer_storage']))
+            state = checkpoint['state']
+            
+            # --- Restore RNG States ---
+            np.random.set_state(checkpoint['numpy_rng'])
+            torch.set_rng_state(checkpoint['torch_rng'].cpu().to(torch.uint8))
+            random.setstate(checkpoint['python_rng'])
+            if checkpoint.get('cuda_rng') is not None and torch.cuda.is_available():
+                torch.cuda.set_rng_state(checkpoint['cuda_rng'].cpu().to(torch.uint8))
+            
+            env.reset(seed=seed)
+            env.unwrapped.set_state(checkpoint['qpos'], checkpoint['qvel'])
+            
+            episode_return = checkpoint['episode_return']
+            episode_returns = checkpoint['episode_returns']
+            start_step = checkpoint['step'] + 1
+            critic_loss_val = 0.0
+        else:
+            replay_buffer.clear()
+            
+            # Always seed the environment reset, regardless of phase
+            state, _ = env.reset(seed=seed)
+            
+            episode_return = 0
+            episode_returns = []
+            start_step = 0
+            critic_loss_val = 0.0
+
+        for step in range(start_step, steps_per_phase):
+
+            if len(replay_buffer.storage) < WARMUP_STEPS:
+                action = env.action_space.sample()
+            else:
+                state_tensor = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+                with torch.no_grad():
+                    action = actor(state_tensor).cpu().numpy()[0]
+                noise = np.random.normal(0, 0.1, size=action_dim)
+                action = (action + noise).clip(-max_action, max_action)
+
+            next_state, _, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+
+            # extract relevant physical quantities from the environment to form the feature vector phi
+            # hardcoded, the network learns the relative importance of each feature via the weight vector w_current
+            velocity = info.get("x_velocity", 0.0)
+            pos_fwd_vel = max(velocity, 0.0)
+            pos_bwd_vel = max(-velocity, 0.0)
+            ctrl_reward = info.get("reward_ctrl", 0.0)
+            survive_reward = info.get("reward_survive", 0.0)  # 0.0 for HalfCheetah (key absent), +1.0/step for Walker2d while upright
+
+            phi = np.array([pos_fwd_vel, pos_bwd_vel, ctrl_reward, survive_reward], dtype=np.float32)  # FIX: now 4-dim, matches w_forward
+            scalar_reward = float(phi @ w_current.detach().cpu().numpy().flatten())
+            # here we use the standard @ numpy operator for matrix multiplication, since we don't need to backpropagate through the reward computation (it's just a scalar for logging and training the critic)
+            # w is simply used to select which physical quantities should enter into the scalar reward. We could have omitted it and used the true reward directly, but we keep it for consistency with the SF-DDPG code.
+            # and also, it is more elegant if one needs then to change the task (e.g. moving backward):
+            # instead of commenting the undesired features, we can change a component of the w vector, or we can design different w vectors for different tasks, and this block of code remains unchanged.
+            episode_return += scalar_reward
+
+            replay_buffer.add(state, action, phi, next_state, float(terminated))
+            state = next_state
+
+            if len(replay_buffer.storage) >= WARMUP_STEPS:
+                batch_states, batch_actions, batch_phis, batch_next_states, batch_term = replay_buffer.sample(batch_size)
+
+                critic_loss_val = Qtrain_critic(
+                    q_critic, q_critic_target, actor_target, batch_states,
+                    batch_actions, batch_phis, w_current, batch_next_states,
+                    batch_term, critic_optimizer, gamma=gamma
+                )
+
+                Qtrain_actor(actor, q_critic, batch_states, actor_optimizer)
+
+                soft_update(q_critic_target, q_critic)
+                soft_update(actor_target, actor)
+
+            if done:
+                state, _ = env.reset()
+                episode_returns.append(float(episode_return))
+                episode_return = 0
+
+                if len(episode_returns) % 10 == 0:
+                    avg_ret = np.mean(episode_returns[-10:])
+                    print(f"Step: {step} | Episodes: {len(episode_returns)} | "
+                          f"Avg Return: {avg_ret:.2f} | C Loss: {critic_loss_val:.4f}")
+
+            # ---------------------------------------------------------
+            # CHECKPOINT SAVE LOGIC
+            # ---------------------------------------------------------
+            if step > 0 and step % save_freq == 0:
+                checkpoint = {
+                    'phase_idx': phase_idx,
+                    'phase_completed': False,
+                    'step': step,
+                    'actor': actor.state_dict(),
+                    'q_critic': q_critic.state_dict(),
+                    'actor_target': actor_target.state_dict(),
+                    'q_critic_target': q_critic_target.state_dict(),
+                    'actor_optimizer': actor_optimizer.state_dict(),
+                    'critic_optimizer': critic_optimizer.state_dict(),
+                    'replay_buffer_storage': replay_buffer.storage,
+                    'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
+                    'state': state,
+                    'qpos': env.unwrapped.data.qpos.copy(),
+                    'qvel': env.unwrapped.data.qvel.copy(),
+                    'numpy_rng': np.random.get_state(),
+                    'torch_rng': torch.get_rng_state(),
+                    'python_rng': random.getstate(),
+                    'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+                    'returns_history': returns_history,
+                    'episode_returns': episode_returns,
+                    'episode_return': episode_return
+                }
+                # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+                tmp_path = Path(run_dir) / "checkpoint_q.tmp"
+                ckpt_path = Path(run_dir) / "checkpoint_q.pt"
+                torch.save(checkpoint, tmp_path)
+                os.replace(tmp_path, ckpt_path)
+                print(f"--> [SAVE] Checkpoint saved at Phase {phase_idx}, Step {step}")
+                if run_steps_limit is not None and (step - start_step + 1) >= run_steps_limit:
+                    print("Chunk limit reached. Exiting safely without closing the phase.")
+                    return returns_history + [episode_returns]
+
+        returns_history.append(episode_returns)
+        torch.save(actor.state_dict(), Path(run_dir) / f"q_actor_{phase_idx}.pth")
+        torch.save(q_critic.state_dict(), Path(run_dir) / f"q_critic_{phase_idx}.pth")
+        
+        # Explicitly construct the final checkpoint to avoid UnboundLocalError 
+        final_checkpoint = {
+            'phase_idx': phase_idx,
+            'phase_completed': True,
+            'step': steps_per_phase,
+            'actor': actor.state_dict(),
+            'q_critic': q_critic.state_dict(),
+            'actor_target': actor_target.state_dict(),
+            'q_critic_target': q_critic_target.state_dict(),
+            'actor_optimizer': actor_optimizer.state_dict(),
+            'critic_optimizer': critic_optimizer.state_dict(),
+            'replay_buffer_storage': replay_buffer.storage,
+            'replay_buffer_ptr': getattr(replay_buffer, 'ptr', 0),
+            'state': state,
+            'qpos': env.unwrapped.data.qpos.copy(),
+            'qvel': env.unwrapped.data.qvel.copy(),
+            'numpy_rng': np.random.get_state(),
+            'torch_rng': torch.get_rng_state(),
+            'python_rng': random.getstate(),
+            'cuda_rng': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+            'returns_history': returns_history,
+            'episode_returns': episode_returns,
+            'episode_return': episode_return
+        }
+        # Save to a temporary file first, then rename to avoid corruption (if the process is interrupted during saving)
+        tmp_path = Path(run_dir) / "checkpoint_q.tmp"
+        ckpt_path = Path(run_dir) / "checkpoint_q.pt"
+        torch.save(final_checkpoint, tmp_path)
+        os.replace(tmp_path, ckpt_path)
+
+    env_cheetah.close()
+    env_walker.close()
+    return returns_history
+
+def parse_arg():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--steps_per_phase", type=int, default=50000)
+    parser.add_argument("--lambda_q", type=float, default=0.2, help="Q-SF-TD loss term weight")
+    parser.add_argument("--lambda_vec", type=float, default=1.0, help="Vectorial TD loss term weight")
+    parser.add_argument("--baseline", action="store_true", help="Run DDPG baseline")
+    parser.add_argument("--run_name", type=str, default="default_run", help="Unique identifier")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+    parser.add_argument("--walker_only", action="store_true", help="Train ONLY Walker2d-v5")
+    
+    # NEW ARGUMENTS FOR CHECKPOINTING
+    parser.add_argument("--resume_dir", type=str, default=None, help="Directory containing .pt checkpoints")
+    parser.add_argument("--save_freq", type=int, default=50000, help="Steps between saves")
+    parser.add_argument("--run_steps_limit", type=int, default=200000, help="Exit cleanly after this many steps")
+    
+    args = parser.parse_args()
+    return args
+
+# ---------------------------------------------------------
+# Main 
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    args = parse_arg()
+    set_seed(args.seed) 
+
+    run_dir = Path("artifacts/walker") / args.run_name / f"seed_{args.seed}"
+    run_dir.mkdir(exist_ok=True, parents=True)
+
+    print("="*50)
+    print("Training SF-DDPG...")
+    print("="*50)
+    SFreturns = train_sf_ddpg(
+        run_dir=run_dir,
+        steps_per_phase=args.steps_per_phase,
+        lambda_q=args.lambda_q,
+        lambda_vec=args.lambda_vec,
+        seed=args.seed,  
+        gamma=args.gamma,
+        walker_only=args.walker_only,
+        resume_dir=args.resume_dir,
+        save_freq=args.save_freq,
+        run_steps_limit=args.run_steps_limit
+    )
+    with open(run_dir / "sf_ddpg_returns.json", "w") as f:
+        json.dump(SFreturns, f)
+
+    if getattr(args, "baseline", False):  
+        set_seed(args.seed)
+
+        print("="*50)
+        print("Training DDPG...")  
+        print("="*50)
+        Qreturns = train_ddpg(
+            run_dir=run_dir,
+            steps_per_phase=args.steps_per_phase,
+            seed=args.seed,  
+            gamma=args.gamma,
+            walker_only=args.walker_only,
+            resume_dir=args.resume_dir,
+            save_freq=args.save_freq,
+            run_steps_limit=args.run_steps_limit
+        )
+        with open(run_dir / "ddpg_returns.json", "w") as f:
+            json.dump(Qreturns, f)
