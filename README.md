@@ -1,0 +1,1 @@
+This branch contains the first implementation of the 3D feature logic (with the task cheetah forward -> cheetah backward and cheetah forward -> walker2d forward but still without the checkpointing). See the branch optimization for the Walker2d task with the checkpointing

@@ -1,4 +1,13 @@
 .venv/
+Prova/
+artifacts/
+*completed_checkpoints*/
+*.pt
+*.pth
+*.zip
+*.mp4
+*.gif
+*.pdf
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
