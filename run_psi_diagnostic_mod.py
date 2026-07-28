@@ -34,7 +34,7 @@ def main():
     # Loop over seeds 1 to 10
     for i in range(1, 11):
 
-        run_name = f"transfer_learning/eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000_transfer_learning/seed_{i}"
+        run_name = f"eval_transfer_{gamma_str}_lq_0_2_lvec_1_0_stepsxphase_50000/seed_{i}"
         
         # Check if the directory exists using os.path.join for cross-platform safety
         dir_path = os.path.join("artifacts", run_name)
